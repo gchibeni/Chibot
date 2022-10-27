@@ -1,0 +1,5 @@
+hikari==2.0.0.dev109
+hikari-lightbulb==2.2.4
+songbird-py==0.1.7
+urllib3==1.26.11
+yt-dlp==2022.7.18
