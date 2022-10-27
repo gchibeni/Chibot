@@ -480,7 +480,7 @@ async def bring(ctx: lightbulb.Context) -> None:
     channelid = f'{voicestate.channel_id}'
     bringchannel = get_guild_info(guild, 'bring_channel')
     # Check if bring channel exists.
-    if not bringchannel: await ctx.respond(f'─── BRING ─── Bring voice channel not set. Use ```/setbring``` to set one up.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if not bringchannel: await ctx.respond(f'─── BRING ─── Bring voice channel not set. Use `/setbring` to set one up.', flags=hikari.MessageFlag.EPHEMERAL); return
     # Checks if target user is connected to any voice channel.
     if not bringstate: await ctx.respond(f'─── BRING ─── Targeted user is not connected to any voice chat.', flags=hikari.MessageFlag.EPHEMERAL); return
     # Checks if user is connected to bring channel.
