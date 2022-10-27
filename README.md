@@ -30,7 +30,7 @@ pip install -r requirements.txt
 
 With the same command line use the commad bellow to initialize the bot:
 ```bash
-python -m chibot
+python -m scripts
 ```
 It may ask you for the bot token. You can find it in the discord developer page, just get your application token.
 If you entered the wrong one, don't worry. You can open the new file ('token.secret') created inside the bot folder as a text editor and paste your token there. Then run this command again and the bot will initialize.
