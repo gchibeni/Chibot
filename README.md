@@ -3,7 +3,9 @@
 
 This bot was made with the idea to be optmized to run on a raspberry pi, without any problems of downloaded media overflowing ram memory, whilist being used on multiple servers, it is also highly customizable. Its not perfect but it works and im happy with it. Hope you like it.
 
-### ─── Initialization >
+### ─── Installation >
+
+If you are a newbie start by downloading and installing python on your system. I recommend that you watch a video on how to do so before proceeding on this readme file, this way you can be more interated on whats happening here.
 
 You should create a discord application on the discord developer page, add it to your server with the administrator privilages and put it on the highest server role (Only if you want the bot to work with all its functionalities).
 
@@ -17,10 +19,6 @@ sudo apt-get install libopus0
 sudo apt-get install ffmpeg
 sudo apt-get install youtube-dl
 ```
-
-### ─── Installation >
-
-If you are a newbie start by downloading and installing python on your system. I recommend that you watch a video on how to do so before proceeding on this readme file, this way you can be more interated on whats happening here.
 
 Start a new command line (Terminal Command) and change the directory to the bot initial folder.
 Then run the following command to install all requirements:
