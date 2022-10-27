@@ -612,10 +612,15 @@ async def bot_disconnect(event : hikari.VoiceStateUpdateEvent):
     if guild in guildvb:
         voicebox = guildvb[guild].voice
         states = bot.cache.get_voice_states_view_for_channel(guild,voicebox.channel_id)
-        await asyncio.sleep(10)
+        # Checks if there are no users in channel.
         if (len(states) == 1):
-            # Disconnect bot and remove guild from guildvb.
-            await clear_playlist(guild); await guildvb[guild].voice.disconnect(); del guildvb[guild]
+            # Wait 10 seconds before disconnecting.
+            await asyncio.sleep(10)
+            states = bot.cache.get_voice_states_view_for_channel(guild,voicebox.channel_id)
+            # Checks again if there is still no users in channel.
+            if (len(states) == 1):
+                # Disconnect bot and remove guild from guildvb.
+                await clear_playlist(guild); await guildvb[guild].voice.disconnect(); del guildvb[guild]
     if event.state.user_id == botuser.id:
         if guild in guildvb:
             # Disconnect bot and remove guild from guildvb.
