@@ -1,25 +1,24 @@
 import asyncio
-from http.client import responses
 import random
-from time import sleep
+from turtle import update
 import hikari
 import lightbulb
 import songbird
+import urllib
 import urllib.request
 import re
-import threading
 import os
-import youtube_dl
 import json
+import spotipy
 
+from spotipy.oauth2 import SpotifyClientCredentials
 from functools import partial
-from traceback import print_exception
-from songbird import ytdl, Queue, TrackHandle, TrackState
+from songbird import ytdl, Queue
 from songbird.hikari import Voicebox
-from turtle import update
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence
 from html import unescape
 
+from threading import Timer   
 
 
 # Get and read bot token.
@@ -28,8 +27,6 @@ with open('./token.secret') as f:
 
 # Create bot instance.
 bot = lightbulb.BotApp(token=token, prefix='/', intents=hikari.Intents.ALL)
-
-
 
 # ─────────────── COMMON FUNCTIONS ───────────────
 
@@ -96,19 +93,23 @@ guildvb : Dict[str, infovb] = {}
 async def on_next(_, __, guild):
     # Check if there are any requests and removes the first one from playlist.
     if len(guildvb[guild].reqs) > 1:
-        guildvb[guild].reqs.pop(0)
+        if len(guildvb[guild].queue) != 0: guildvb[guild].reqs.pop(0)
         await update_playlist(guild)
     # Check if there are any requests and add source to the queue.
     if len(guildvb[guild].reqs) > 1:
         source = await ytdl(guildvb[guild].reqs[1].url)
         guildvb[guild].queue.append(source)
 
+async def on_end(_, __, guild):
+    # If media ended playing and there is no more media on queueu try clearing the playlist.
+    if len(guildvb[guild].queue) == 0: await clear_playlist(guild)
+
 async def get_media(prompt):
     # Get media from Youtube based on the prompt.
     try:
         html = urllib.request.urlopen(f'https://www.youtube.com/results?search_query={urllib.parse.quote_plus(prompt)}')
         video_ids = re.findall(r'watch\?v=(\S{11})', html.read().decode())
-        prompt : str = 'https://www.youtube.com/watch/?v=' + video_ids[0]
+        prompt : str = 'https://www.youtube.com/watch?v=' + video_ids[0]
         return prompt
     except:
         return False
@@ -124,15 +125,23 @@ async def get_media_title(url):
     except:
         return False
 
+def get_youtube_title(url):
+    params = {'format': 'json', 'url': '%s' % url}
+    urljson = f'https://www.youtube.com/oembed?{urllib.parse.urlencode(params)}'
+    with urllib.request.urlopen(urljson) as response:
+        response_text = response.read()
+        data = json.loads(response_text.decode())
+        return data['title']
+
 async def add_media_queue(guild, url, title, user):
     # Add media to playlist list.
     guildvb[guild].reqs.append(uprompt(url, title, user))
-    await update_playlist(guild)
     # Checks if there is no more than two media on queue.
     if len(guildvb[guild].reqs) > 2: return
     # Add media from playlist to queue.
     source = await ytdl(url)
     guildvb[guild].queue.append(source)
+    if len(guildvb[guild].queue) == 0: await update_playlist(guild)
 
 async def clear_playlist(guild):
     guildvb[guild].queue.clear()
@@ -158,7 +167,28 @@ async def update_playlist(guild):
     else: embeded = (hikari.Embed(description=f'\nPlaying ➜ ```#00 : No media playing . . .```').set_footer(icon=f'https://i.gifer.com/L7sU.gif',text='Requested by ➜ . . .'))
     # Try and edit message.
     try: await bot.rest.edit_message(channel=messageid[0],message=messageid[1],content=embeded)
-    except: print(f'< Music ||| {user.username} <X>: Could not update playlist message.')
+    except: print(f'< Music <X>: Could not update playlist message.')
+
+def get_spotify_playlist(url):
+    spotifyauth = get_guild_info('bot_info', 'spotify_auth')
+    if not spotifyauth: return
+    auth = spotifyauth.split('/')
+    # Authenticate in spotify app.
+    client_credentials_manager = SpotifyClientCredentials(client_id=auth[0], client_secret=auth[1])
+    # Create spotify session object.
+    session = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+    # Get uri from https link
+    if match := re.match(r"https://open.spotify.com/playlist/(.*)\?", url): playlist_uri = match.groups()[0]
+    else: return False
+    # Get list of tracks in a given playlist
+    try: tracks = session.playlist_items(playlist_uri,limit=100)["items"]
+    except: return 'no_auth'
+    playlist = []
+    for track in tracks:
+        name = track["track"]["name"]
+        artist = track["track"]["artists"][0]['name']
+        playlist.append(f'{name} - {artist}')
+    return playlist
 
 async def play_audio(guild, audio):
     source = await songbird.Source.ffmpeg(f'./audios/{audio}.mp3')
@@ -185,6 +215,8 @@ async def play(ctx: lightbulb.Context) -> None:
         voice = await Voicebox.connect(client=bot, guild_id=guild, channel_id=channel)
         next = partial(on_next, guild=guild)
         queue = Queue(voice, on_next=next)
+        end = partial(on_end, guild=guild)
+        await voice.add_event(songbird.Event.End, end)
         # Add instance to guild class.
         guildvb[guild] = infovb(voice=voice, queue=queue, reqs=[])
     # Check again if bot is already in guild.
@@ -205,26 +237,30 @@ async def play(ctx: lightbulb.Context) -> None:
         mediacount : int = 0
         # Import all media from Spotify playlist.
         if prompt.startswith('https://open.spotify.com/playlist'):
+            await ctx.edit_last_response(f'─── MUSIC ─── Spotify is currently disabled.'); return
+            spotifyauth = get_guild_info('bot_info', 'spotify_auth')
+            if not spotifyauth: await ctx.edit_last_response(f'─── MUSIC ─── Spotify is currently disabled. Use `/spotifyauth` to authenticate into a developer application so this function can be activated.'); return
             # Extract each item from spotify playlist.
-            html = urllib.request.urlopen(prompt)
-            page = html.read().decode()
-            playlist = re.findall('<a href=\'https://open.spotify.com/track/.*?\' class=\'.*?\'>(.*?)</a></span></span><span dir=\'auto\' class=\'.*?\'><a href=\'/artist/.*?\'>(.*?)</a>', page)
-            for music in playlist:
-                # Search query based on extracted items.
-                song = f'{unescape(music[0])} - {unescape(music[1])}'
-                # Get media url and title.
-                media = await get_media(song)
-                title = await get_media_title(media)
-                # Checks if media exists.
-                if media and title:
-                    # Add media to playlist list.
-                    await add_media_queue(guild, media, title, user)
-                    mediacount += 1
+            playlist = get_spotify_playlist(prompt)
+            if playlist:
+                if playlist == 'no_auth': await ctx.edit_last_response(f'─── MUSIC ─── Spotify authentification is invalid. Use `/spotifyauth` to update authenticator.'); return
+                for music in playlist:
+                    # Get media url and title.
+                    media = await get_media(music)
+                    title = get_youtube_title(media)
+                    # Checks if media exists.
+                    if media and title:
+                        print(f'{media} - {title}')
+                        # Add media to playlist list.
+                        await add_media_queue(guild, media, title, user)
+                        mediacount += 1
+                await update_playlist(guild)
         # Import media from URL.
         elif prompt.startswith('http://') or prompt.startswith('https://'):
             # Get media url and title.
             media = prompt
-            title = await get_media_title(prompt)
+            if '.youtube.com/' in prompt: title = get_youtube_title(media)
+            else: title = await get_media_title(prompt)
             # Checks if media exists.
             if media and title:
                 # Add media to playlist list.
@@ -234,7 +270,7 @@ async def play(ctx: lightbulb.Context) -> None:
         else:
             # Get media url and title.
             media = await get_media(prompt)
-            title = await get_media_title(media)
+            title = get_youtube_title(media)
             # Checks if media exists.
             if media and title:
                 # Add media to playlist list.
@@ -257,6 +293,7 @@ async def skip(ctx: lightbulb.Context) -> None:
     # Try to skip.
     try: guildvb[guild].queue.skip(); await ctx.respond(f'─── MUSIC ─── Skipped media.', flags=hikari.MessageFlag.EPHEMERAL)
     except: await ctx.respond(f'─── MUSIC ─── No media to skip.', flags=hikari.MessageFlag.EPHEMERAL)
+    if len(guildvb[guild].queue) == 0: await clear_playlist(guild)
 
 # PAUSE ───────────────
 @bot.command
@@ -301,6 +338,27 @@ async def musicmsg(ctx: lightbulb.Context) -> None:
     # Update guild info.
     update_guild_info(guild, 'music_message', f'{channel.id}/{message.id}')
 
+# SPOTIFY AUTH ────────
+@bot.command
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option('clientsecret', 'Spotify application client secret', required=True, type=str)
+@lightbulb.option('clientid', 'Spotify application client id', required=True, type=str)
+@lightbulb.command('spotifyauth', 'Authenticate into a spotify application so bot can work with spotify')
+@lightbulb.implements(lightbulb.SlashCommand)
+async def spotifyauth(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    clientid = ctx.options.clientid
+    clientsecret = ctx.options.clientsecret
+    auth = f'{clientid}/{clientsecret}'
+    # Update spotify auth.
+    update_guild_info('bot_info', 'spotify_auth', auth)
+    await ctx.respond(f'─── MUSIC ─── Spotify authenticator updated.', flags=hikari.MessageFlag.EPHEMERAL)
+
+
+
+
+
 # ──────────────── COMMON COMMANDS ───────────────
 
 # STATUS ──────────────
@@ -309,6 +367,11 @@ async def musicmsg(ctx: lightbulb.Context) -> None:
 @lightbulb.command('status', 'Check bot status')
 @lightbulb.implements(lightbulb.SlashCommand)
 async def status(ctx: lightbulb.Context) -> None:
+    guild = ctx.guild_id
+    if guild in guildvb:
+        for i in guildvb[guild].reqs:
+            print(f'{i.title} --- {i.url} --- {i.user}')
+        
     # Quick command to check bot status and lag.
     print('─── STATUS ─── Application is up and running!')
     await ctx.respond('─── STATUS ─── Application is up and running!', delete_after=2)
@@ -603,11 +666,11 @@ async def deltriggers(ctx: lightbulb.Context) -> None:
 
 # LISTENERS ────────────
 
+
 @bot.listen(hikari.VoiceStateUpdateEvent)
 async def bot_disconnect(event : hikari.VoiceStateUpdateEvent):
     guild = event.guild_id
     botuser = await bot.rest.fetch_my_user()
-    
     # Checks if the bot is alone in a channel and disconnects him
     if guild in guildvb:
         voicebox = guildvb[guild].voice
@@ -620,11 +683,13 @@ async def bot_disconnect(event : hikari.VoiceStateUpdateEvent):
             # Checks again if there is still no users in channel.
             if (len(states) == 1):
                 # Disconnect bot and remove guild from guildvb.
-                await clear_playlist(guild); await guildvb[guild].voice.disconnect(); del guildvb[guild]
-    if event.state.user_id == botuser.id:
-        if guild in guildvb:
+                voice = guildvb[guild].voice
+                await clear_playlist(guild); del guildvb[guild]; await voice.disconnect(); 
+    #if event.state.user_id == botuser.id:
+        #if guild in guildvb:
             # Disconnect bot and remove guild from guildvb.
-            await clear_playlist(guild); await guildvb[guild].voice.disconnect(); del guildvb[guild]
+            #voice = guildvb[guild].voice
+            #await clear_playlist(guild); del guildvb[guild]; await voice.disconnect(); 
 
 @bot.listen(hikari.GuildMessageCreateEvent)
 async def on_message(message : hikari.GuildMessageCreateEvent):
@@ -682,6 +747,7 @@ async def on_slashcommand(invoc : lightbulb.SlashCommandInvocationEvent):
             print(f'< {author.id} ||| {author.username}> <C>: Used {command} < < < <')
     except: return
 
+"""
 @bot.listen(lightbulb.PrefixCommandErrorEvent)
 async def on_error(event: lightbulb.PrefixCommandErrorEvent) -> None: return
 @bot.listen(lightbulb.SlashCommandErrorEvent)
@@ -696,6 +762,18 @@ async def on_error(event: lightbulb.SlashCommandErrorEvent) -> None:
     elif isinstance(exception, lightbulb.NotEnoughArguments): resp = f"─── Missing Arguments! ─── Command is expected to have more arguments."
     else: resp = f"─── Error! ─── Command could not execute."
     await event.context.respond(resp, flags=hikari.MessageFlag.EPHEMERAL)
+"""
+
+
+#secs = 15
+#def update_servers():
+#    print('Updated servers!')
+#    t = Timer(secs, update_servers)
+#    t.start()
+#update_servers()
+
+
+
 
 # START ───────────────
 @bot.listen(hikari.StartedEvent)
