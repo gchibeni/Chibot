@@ -287,8 +287,7 @@ async def skip(ctx: lightbulb.Context) -> None:
     guild = ctx.guild_id
     # Try to skip.
     try: guildvb[guild].queue.skip(); await ctx.respond(f'─── MEDIA ─── Skipped media.', flags=hikari.MessageFlag.EPHEMERAL)
-    except: await ctx.respond(f'─── MEDIA ─── No media to skip.', flags=hikari.MessageFlag.EPHEMERAL)
-    if len(guildvb[guild].reqs) == 1: await clear_playlist(guild)
+    except: await ctx.respond(f'─── MEDIA ─── No media to skip.', flags=hikari.MessageFlag.EPHEMERAL); await clear_playlist(guild)
 
 # PAUSE ───────────────
 @bot.command
