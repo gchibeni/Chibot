@@ -83,26 +83,23 @@ class uprompt:
 
 class infovb:
     # Voicebox information class.
-    def __init__(self, voice, queue, reqs):
+    def __init__(self, voice, queue):
         self.voice : Voicebox = voice
         self.queue : Queue = queue
-        self.reqs : List[uprompt] = reqs
+        # Sets the first req to be always an empty uprompt so it does not glitch playlist.
+        self.reqs : List[uprompt] = [uprompt(url="", title="", user="")]
 
 guildvb : Dict[str, infovb] = {}
 
 async def on_next(_, __, guild):
     # Check if there are any requests and removes the first one from playlist.
     if len(guildvb[guild].reqs) > 1:
-        if len(guildvb[guild].queue) != 0: guildvb[guild].reqs.pop(0)
-        await update_playlist(guild)
+        guildvb[guild].reqs.pop(0)
     # Check if there are any requests and add source to the queue.
     if len(guildvb[guild].reqs) > 1:
         source = await ytdl(guildvb[guild].reqs[1].url)
         guildvb[guild].queue.append(source)
-
-async def on_end(_, __, guild):
-    # If media ended playing and there is no more media on queueu try clearing the playlist.
-    if len(guildvb[guild].queue) == 0: await clear_playlist(guild)
+    await update_playlist(guild)
 
 async def get_media(prompt):
     # Get media from Youtube based on the prompt.
@@ -141,12 +138,13 @@ async def add_media_queue(guild, url, title, user):
     # Add media from playlist to queue.
     source = await ytdl(url)
     guildvb[guild].queue.append(source)
-    if len(guildvb[guild].queue) == 0: await update_playlist(guild)
 
 async def clear_playlist(guild):
     guildvb[guild].queue.clear()
     guildvb[guild].reqs.clear()
     await update_playlist(guild)
+    # Sets the first req to be always an empty uprompt so it does not glitch playlist.
+    guildvb[guild].reqs = [uprompt(url="", title="", user="")]
 
 async def update_playlist(guild):
     # Common variables.
@@ -156,11 +154,11 @@ async def update_playlist(guild):
     if not musicmessage: return
     messageid = musicmessage.split('/')
     # Check if guild requests is not null.
-    if guildvb[guild].reqs:
+    if guildvb[guild].reqs and guildvb[guild].reqs[0].user:
         # Reverse playlist to be listed on message.
         for s, i in reversed(list(enumerate(guildvb[guild].reqs))):
-            if (s != 0): queuestr += f'```#{s:02d} : {i.title}```'
-            else: playing = f'\n──────── Playing ────────\n ```#{s:02d} : {i.title}```'; user = i.user
+            if s != 0: queuestr += f'```#{s:02d} : {i.title}```'
+            else: playing = f'\n──────── Playing ────────\n ```#00 : {i.title}```'; user = i.user
         # Create embeded message for when there is music playing.
         embeded = (hikari.Embed(description=f'{queuestr+playing}').set_footer(icon=user.avatar_url,text=f'Requested by ➜ {user.username} '))
     # Create embeded message for when there is no music playing.
@@ -207,7 +205,7 @@ async def play(ctx: lightbulb.Context) -> None:
     guild = ctx.guild_id
     voicestate = ctx.get_guild().get_voice_state(user=user.id)
     # Check if user is in voice channel.
-    if not voicestate: await ctx.respond(f'─── MUSIC ─── You are not in a voice channel.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if not voicestate: await ctx.respond(f'─── MEDIA ─── You are not in a voice channel.', flags=hikari.MessageFlag.EPHEMERAL); return
     channel = voicestate.channel_id
     # Check if bot is already in guild.
     if guild not in guildvb:
@@ -215,35 +213,32 @@ async def play(ctx: lightbulb.Context) -> None:
         voice = await Voicebox.connect(client=bot, guild_id=guild, channel_id=channel)
         next = partial(on_next, guild=guild)
         queue = Queue(voice, on_next=next)
-        end = partial(on_end, guild=guild)
-        await voice.add_event(songbird.Event.End, end)
         # Add instance to guild class.
-        guildvb[guild] = infovb(voice=voice, queue=queue, reqs=[])
+        guildvb[guild] = infovb(voice=voice, queue=queue)
     # Check again if bot is already in guild.
     if guild in guildvb:
         # Checks if user is in same channel as bot.
-        if guildvb[guild].voice.channel_id != voicestate.channel_id: await ctx.respond(f'─── MUSIC ─── You must be in the same channel as the bot.', flags=hikari.MessageFlag.EPHEMERAL); return
+        if guildvb[guild].voice.channel_id != voicestate.channel_id: await ctx.respond(f'─── MEDIA ─── You must be in the same channel as the bot.', flags=hikari.MessageFlag.EPHEMERAL); return
         # If no prompt was added either resume media or tell user that bot joined the server.
         if prompt is None:
-            if not guildvb[guild].queue.running:
-                await ctx.respond(f'─── MUSIC ─── Joined channel.', flags=hikari.MessageFlag.EPHEMERAL)
+            if not guildvb[guild].queue.running: await ctx.respond(f'─── MEDIA ─── Joined channel.', flags=hikari.MessageFlag.EPHEMERAL); return
             else:
-                try: guildvb[guild].queue.track_handle.play(); await ctx.respond(f'─── MUSIC ─── Resumed media.', flags=hikari.MessageFlag.EPHEMERAL)
-                except: await ctx.respond(f'─── MUSIC ─── No media to resume.', flags=hikari.MessageFlag.EPHEMERAL)
-            return
+                try: guildvb[guild].queue.track_handle.play(); await ctx.respond(f'─── MEDIA ─── Resumed media.', flags=hikari.MessageFlag.EPHEMERAL)
+                except: await ctx.respond(f'─── MEDIA ─── No media to resume.', flags=hikari.MessageFlag.EPHEMERAL)
+                return
         # Send fast response so bot does not glitch.
-        await ctx.respond(f'─── MUSIC ─── Media is being added to queue . . .', flags=hikari.MessageFlag.EPHEMERAL)
+        await ctx.respond(f'─── MEDIA ─── Media is being added to queue . . .', flags=hikari.MessageFlag.EPHEMERAL)
         # Create count of all added media.
         mediacount : int = 0
         # Import all media from Spotify playlist.
         if prompt.startswith('https://open.spotify.com/playlist'):
-            await ctx.edit_last_response(f'─── MUSIC ─── Spotify is currently disabled.'); return
+            # Check if spotify auth code exists.
             spotifyauth = get_guild_info('bot_info', 'spotify_auth')
-            if not spotifyauth: await ctx.edit_last_response(f'─── MUSIC ─── Spotify is currently disabled. Use `/spotifyauth` to authenticate into a developer application so this function can be activated.'); return
+            if not spotifyauth: await ctx.edit_last_response(f'─── MEDIA ─── Spotify is currently disabled. Tell the bot owner to use `/spotifyauth` to authenticate into a developer application so this function can be activated.'); return
             # Extract each item from spotify playlist.
             playlist = get_spotify_playlist(prompt)
             if playlist:
-                if playlist == 'no_auth': await ctx.edit_last_response(f'─── MUSIC ─── Spotify authentification is invalid. Use `/spotifyauth` to update authenticator.'); return
+                if playlist == 'no_auth': await ctx.edit_last_response(f'─── MEDIA ─── Spotify authentification is invalid. Tell the bot owner to use `/spotifyauth` to update authenticator.'); return
                 for music in playlist:
                     # Get media url and title.
                     media = await get_media(music)
@@ -254,7 +249,6 @@ async def play(ctx: lightbulb.Context) -> None:
                         # Add media to playlist list.
                         await add_media_queue(guild, media, title, user)
                         mediacount += 1
-                await update_playlist(guild)
         # Import media from URL.
         elif prompt.startswith('http://') or prompt.startswith('https://'):
             # Get media url and title.
@@ -277,9 +271,10 @@ async def play(ctx: lightbulb.Context) -> None:
                 await add_media_queue(guild, media, title, user)
                 mediacount += 1
         # Checks if media was able to be added.
-        if mediacount == 0: await ctx.edit_last_response(f'─── MUSIC ─── Media could not be found or added.'); return
-        # Add new media list to media queue.
-        await ctx.edit_last_response(f'─── MUSIC ─── Media added to the queue.')
+        if mediacount == 0: await ctx.edit_last_response(f'─── MEDIA ─── Media could not be found or added.'); return
+        # Update playlist and send confirmation message.
+        await update_playlist(guild)
+        await ctx.edit_last_response(f'─── MEDIA ─── Media added to the queue.')
         print(f'< Music ||| {user.username} <X>: Finished downloading media.')
 
 # SKIP ────────────────
@@ -291,9 +286,9 @@ async def skip(ctx: lightbulb.Context) -> None:
     # Common variables.
     guild = ctx.guild_id
     # Try to skip.
-    try: guildvb[guild].queue.skip(); await ctx.respond(f'─── MUSIC ─── Skipped media.', flags=hikari.MessageFlag.EPHEMERAL)
-    except: await ctx.respond(f'─── MUSIC ─── No media to skip.', flags=hikari.MessageFlag.EPHEMERAL)
-    if len(guildvb[guild].queue) == 0: await clear_playlist(guild)
+    try: guildvb[guild].queue.skip(); await ctx.respond(f'─── MEDIA ─── Skipped media.', flags=hikari.MessageFlag.EPHEMERAL)
+    except: await ctx.respond(f'─── MEDIA ─── No media to skip.', flags=hikari.MessageFlag.EPHEMERAL)
+    if len(guildvb[guild].reqs) == 1: await clear_playlist(guild)
 
 # PAUSE ───────────────
 @bot.command
@@ -304,8 +299,8 @@ async def pause(ctx: lightbulb.Context) -> None:
     # Common variables.
     guild = ctx.guild_id
     # Try to pause.
-    try: guildvb[guild].queue.track_handle.pause(); await ctx.respond(f'─── MUSIC ─── Paused media.', flags=hikari.MessageFlag.EPHEMERAL)
-    except: await ctx.respond(f'─── MUSIC ─── No media to pause.', flags=hikari.MessageFlag.EPHEMERAL)
+    try: guildvb[guild].queue.track_handle.pause(); await ctx.respond(f'─── MEDIA ─── Paused media.', flags=hikari.MessageFlag.EPHEMERAL)
+    except: await ctx.respond(f'─── MEDIA ─── No media to pause.', flags=hikari.MessageFlag.EPHEMERAL)
 
 # STOP ────────────────
 @bot.command
@@ -316,15 +311,16 @@ async def stop(ctx: lightbulb.Context) -> None:
     # Common variables.
     guild = ctx.guild_id
     # Check if bot is in guild.
-    if guild not in guildvb: await ctx.respond(f'─── MUSIC ─── Bot is not connected.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if guild not in guildvb: await ctx.respond(f'─── MEDIA ─── Bot is not connected.', flags=hikari.MessageFlag.EPHEMERAL); return
     # Disconnect bot and remove guild from guildvb.
     await clear_playlist(guild); await guildvb[guild].voice.disconnect(); del guildvb[guild]
     # Clear all media from playlist.
-    await ctx.respond(f'─── MUSIC ─── Bot stopped.', flags=hikari.MessageFlag.EPHEMERAL)
+    await ctx.respond(f'─── MEDIA ─── Bot stopped.', flags=hikari.MessageFlag.EPHEMERAL)
 
 # SET MUSIC MESSAGE ───
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
 @lightbulb.command('musicmessage', 'Create music message to show playlist queue.')
 @lightbulb.implements(lightbulb.SlashCommand)
 async def musicmsg(ctx: lightbulb.Context) -> None:
@@ -334,26 +330,28 @@ async def musicmsg(ctx: lightbulb.Context) -> None:
     # Create music message.
     embeded = (hikari.Embed(description=f'──────── Playing ────────\n```#00 : Use /play to add media to playlist.```').set_footer(icon=f'https://i.gifer.com/L7sU.gif',text=f'Requested by ➜ . . .'))
     message = await bot.rest.create_message(channel=channel,content=embeded)
-    await ctx.respond(f'─── MUSIC ─── Music message created.', delete_after=0)
+    await ctx.respond(f'─── MEDIA ─── Music message created.', delete_after=0)
     # Update guild info.
     update_guild_info(guild, 'music_message', f'{channel.id}/{message.id}')
 
 # SPOTIFY AUTH ────────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.ADMINISTRATOR, dm_enabled=False)
 @lightbulb.option('clientsecret', 'Spotify application client secret', required=True, type=str)
 @lightbulb.option('clientid', 'Spotify application client id', required=True, type=str)
 @lightbulb.command('spotifyauth', 'Authenticate into a spotify application so bot can work with spotify')
 @lightbulb.implements(lightbulb.SlashCommand)
 async def spotifyauth(ctx: lightbulb.Context) -> None:
     # Common variables.
-    guild = ctx.guild_id
     clientid = ctx.options.clientid
     clientsecret = ctx.options.clientsecret
     auth = f'{clientid}/{clientsecret}'
+    botowners = await bot.fetch_owner_ids()
+    # Check if bot owner.
+    if ctx.user.id not in botowners: await ctx.respond(f'─── MEDIA ─── You must be the bot owner to use this command.', flags=hikari.MessageFlag.EPHEMERAL); return
     # Update spotify auth.
     update_guild_info('bot_info', 'spotify_auth', auth)
-    await ctx.respond(f'─── MUSIC ─── Spotify authenticator updated.', flags=hikari.MessageFlag.EPHEMERAL)
+    await ctx.respond(f'─── MEDIA ─── Spotify authenticator updated.', flags=hikari.MessageFlag.EPHEMERAL)
 
 
 
@@ -363,15 +361,17 @@ async def spotifyauth(ctx: lightbulb.Context) -> None:
 
 # STATUS ──────────────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.ADMINISTRATOR, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.ADMINISTRATOR))
 @lightbulb.command('status', 'Check bot status')
 @lightbulb.implements(lightbulb.SlashCommand)
 async def status(ctx: lightbulb.Context) -> None:
+    await bot.update_presence
     guild = ctx.guild_id
     if guild in guildvb:
+        if len(guildvb[guild].queue) != 0: print(f'-- Playing --------------- {guildvb[guild].queue.track_handle.metadata.title}')
         for i in guildvb[guild].reqs:
-            print(f'{i.title} --- {i.url} --- {i.user}')
-        
+            print(f'{i.title} --- {i.url} --- {i.user} --- {len(guildvb[guild].queue)}')
     # Quick command to check bot status and lag.
     print('─── STATUS ─── Application is up and running!')
     await ctx.respond('─── STATUS ─── Application is up and running!', delete_after=2)
@@ -432,7 +432,8 @@ async def sroll(ctx: lightbulb.Context) -> None:
 
 # SAY ─────────────────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False, perms=hikari.Permissions.MANAGE_MESSAGES)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
 @lightbulb.option('message', 'Message to be said by the bot', required=True)
 @lightbulb.option('att', 'Attached files or images', required=False, type=hikari.OptionType.ATTACHMENT)
 @lightbulb.command('say', 'Force the bot to send the specified message')
@@ -481,7 +482,8 @@ async def anon(ctx: lightbulb.Context) -> None:
 
 # PURGE ───────────────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False, perms=hikari.Permissions.MANAGE_MESSAGES)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.ADMINISTRATOR, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.ADMINISTRATOR))
 @lightbulb.option('quantity', 'Quantity of messages to be purged', required=True, type=int)
 @lightbulb.option('force', 'Force delete past marked messages', required=False, type=bool)
 @lightbulb.command('purge', 'Delete in order the quantity specified of messages in the channel')
@@ -512,7 +514,8 @@ async def purge(ctx: lightbulb.Context) -> None:
 
 # SET BRING CHANNEL ───
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
 @lightbulb.command('setbring', 'Set server /bring channel to current connected one')
 @lightbulb.implements(lightbulb.SlashCommand)
 async def setbring(ctx: lightbulb.Context) -> None:
@@ -576,20 +579,24 @@ async def roullete(ctx: lightbulb.Context) -> None:
 
 # CLEAR DM ────────────
 @bot.command
+@lightbulb.app_command_permissions(perms=hikari.Permissions.ADMINISTRATOR, dm_enabled=True)
 @lightbulb.command('cleardm', 'Clear all bot messages in dm', guilds=None)
-@lightbulb.implements(lightbulb.PrefixCommand)
+@lightbulb.implements(lightbulb.SlashCommand)
 async def cleardm(ctx: lightbulb.Context) -> None:
     # Common variables.
     ch = await ctx.user.fetch_dm_channel()
     msgs = await bot.rest.fetch_messages(channel=ch)
     # Check each message and delete them.
+    await ctx.respond(f'─── DM ─── Clearing all bot messages . . .', flags=hikari.MessageFlag.EPHEMERAL)
     for m in msgs:
         try: await bot.rest.delete_message(ch,m.id)
         except: continue
+    await ctx.edit_last_response(f'─── DM ─── Bot messages cleared.')
 
 # CREATE RESPONSES ────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
 @lightbulb.option('responses', 'List of all responses. {| = separator},{<@u> = user mention}', required=True, type=str)
 @lightbulb.option('triggers', 'List of all triggers. {| = separator},{any:* = req anywhere},{sec:* = req anywhere},{* = equal}', required=True, type=str)
 @lightbulb.command('settriggers', 'Creates text triggers that will send a random set response')
@@ -610,7 +617,8 @@ async def settriggers(ctx: lightbulb.Context) -> None:
 
 # LIST RESPONSES ──────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
 @lightbulb.command('listtriggers', 'Lists all text triggers')
 @lightbulb.implements(lightbulb.SlashCommand)
 async def listtriggers(ctx: lightbulb.Context) -> None:
@@ -629,7 +637,8 @@ async def listtriggers(ctx: lightbulb.Context) -> None:
 
 # DELETE RESPONSES ────
 @bot.command
-@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
 @lightbulb.option('triggerid', 'ID of specific trigger', required=True, min_value=0, type=int)
 @lightbulb.command('deltriggers', 'Delete specific trigger based on ID')
 @lightbulb.implements(lightbulb.SlashCommand)
@@ -652,18 +661,6 @@ async def deltriggers(ctx: lightbulb.Context) -> None:
 
 
 
-
-#def Register(cmd : str, desc : str, func, kek):
-#    @bot.command
-#    @lightbulb.app_command_permissions(dm_enabled=False)
-#    @lightbulb.command(cmd, desc)
-#    @lightbulb.implements(lightbulb.SlashCommand)
-#    async def cmd(ctx: lightbulb.Context) -> None:
-#        await func(ctx)
-#
-#def UnregisterPrefix(cmd : str):
-#    bot.remove_command(bot.get_prefix_command(cmd))
-
 # LISTENERS ────────────
 
 
@@ -684,12 +681,11 @@ async def bot_disconnect(event : hikari.VoiceStateUpdateEvent):
             if (len(states) == 1):
                 # Disconnect bot and remove guild from guildvb.
                 voice = guildvb[guild].voice
-                await clear_playlist(guild); del guildvb[guild]; await voice.disconnect(); 
-    #if event.state.user_id == botuser.id:
-        #if guild in guildvb:
-            # Disconnect bot and remove guild from guildvb.
-            #voice = guildvb[guild].voice
-            #await clear_playlist(guild); del guildvb[guild]; await voice.disconnect(); 
+                await clear_playlist(guild); del guildvb[guild]; await voice.disconnect()
+    if event.old_state and event.state.user_id == botuser.id and guild in guildvb:
+        # Disconnect bot and remove guild from guildvb.
+        voice = guildvb[guild].voice
+        await clear_playlist(guild); del guildvb[guild]; await voice.disconnect()
 
 @bot.listen(hikari.GuildMessageCreateEvent)
 async def on_message(message : hikari.GuildMessageCreateEvent):
@@ -747,7 +743,6 @@ async def on_slashcommand(invoc : lightbulb.SlashCommandInvocationEvent):
             print(f'< {author.id} ||| {author.username}> <C>: Used {command} < < < <')
     except: return
 
-"""
 @bot.listen(lightbulb.PrefixCommandErrorEvent)
 async def on_error(event: lightbulb.PrefixCommandErrorEvent) -> None: return
 @bot.listen(lightbulb.SlashCommandErrorEvent)
@@ -762,7 +757,9 @@ async def on_error(event: lightbulb.SlashCommandErrorEvent) -> None:
     elif isinstance(exception, lightbulb.NotEnoughArguments): resp = f"─── Missing Arguments! ─── Command is expected to have more arguments."
     else: resp = f"─── Error! ─── Command could not execute."
     await event.context.respond(resp, flags=hikari.MessageFlag.EPHEMERAL)
-"""
+
+
+
 
 
 #secs = 15
