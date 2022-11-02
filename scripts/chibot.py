@@ -123,12 +123,12 @@ async def get_media_title(url):
         return False
 
 async def get_youtube_title(url):
+    await asyncio.sleep(0.1)
     params = {'format': 'json', 'url': '%s' % url}
     urljson = f'https://www.youtube.com/oembed?{urllib.parse.urlencode(params)}'
-    with urllib.request.urlopen(urljson) as response:
-        response_text = response.read()
-        data = json.loads(response_text.decode())
-        return data['title']
+    html = urllib.request.urlopen(urljson)
+    data = json.loads(html.read().decode())
+    return data["title"]
 
 async def add_media_queue(guild, url, title, user):
     # Add media to playlist list.
@@ -156,12 +156,14 @@ async def update_playlist(guild):
     # Check if guild requests is not null.
     if guildvb[guild].reqs and guildvb[guild].reqs[0].user:
         # Reverse playlist to be listed on message.
+        longlist : bool = False
         for s, i in reversed(list(enumerate(guildvb[guild].reqs))):
-            if s > 49:
-                queuestr += f'```#.. : List is too long . . .```'
+            if s > 49 and longlist: continue
+            elif s > 49:
+                longlist = True
                 lastid = len(guildvb[guild].reqs)-1
                 queuestr += f'```#{(lastid):02d} : {guildvb[guild].reqs[lastid].title}```'
-                break
+                queuestr += f'```#.. : List is too long . . .```'
             elif s != 0: queuestr += f'```#{s:02d} : {i.title}```'
             else: playing = f'\n──────── Playing ────────\n ```#00 : {i.title}```'; user = i.user
         # Create embeded message for when there is music playing.
@@ -191,6 +193,7 @@ async def get_spotify_playlist(url):
         name = track["track"]["name"]
         artist = track["track"]["artists"][0]['name']
         playlist.append(f'{name} - {artist}')
+    random.shuffle(playlist)
     return playlist
 
 async def play_audio(guild, audio):
@@ -248,7 +251,7 @@ async def play(ctx: lightbulb.Context) -> None:
                     if guild not in guildvb: return
                     # Get media url and title.
                     media = await get_media(music)
-                    title = await get_media_title(media)
+                    title = await get_youtube_title(media)
                     # Checks if media exists.
                     if media and title:
                         print(f'{media} - {title}')
