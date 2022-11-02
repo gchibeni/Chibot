@@ -1,6 +1,5 @@
 import asyncio
 import random
-from turtle import update
 import hikari
 import lightbulb
 import songbird
@@ -10,15 +9,18 @@ import re
 import os
 import json
 import spotipy
+import math
+import requests
+import signal
+import sys
 
 from spotipy.oauth2 import SpotifyClientCredentials
 from functools import partial
 from songbird import ytdl, Queue
 from songbird.hikari import Voicebox
 from typing import Dict, List, Sequence
-from html import unescape
 
-from threading import Timer   
+from threading import Timer
 
 
 # Get and read bot token.
@@ -70,6 +72,14 @@ def get_guild_info(guild, key):
     # Return false if nothing is made. 
     return False
 
+def convert_size(size_bytes):
+   if size_bytes == 0:
+       return "0B"
+   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   i = int(math.floor(math.log(size_bytes, 1024)))
+   p = math.pow(1024, i)
+   s = round(size_bytes / p, 2)
+   return "%s %s" % (s, size_name[i])
 
 
 # ──────────────── MUSIC COMMANDS ────────────────
@@ -197,7 +207,8 @@ async def get_spotify_playlist(url):
     return playlist
 
 async def play_audio(guild, audio):
-    source = await songbird.Source.ffmpeg(f'./audios/{audio}.mp3')
+    if guild not in guildvb: return
+    source = await songbird.Source.ffmpeg(f'./audios/{audio}')
     await guildvb[guild].voice.play_source(source)
 
 # PLAY ────────────────
@@ -601,40 +612,48 @@ async def cleardm(ctx: lightbulb.Context) -> None:
         except: continue
     await ctx.edit_last_response(f'─── DM ─── Bot messages cleared.')
 
-# CREATE RESPONSES ────
+# TRIGGERS ────────────
 @bot.command
 @lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
 @lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
+@lightbulb.command('triggers', 'Trigger command group')
+@lightbulb.implements(lightbulb.SlashCommandGroup)
+async def triggersc(): pass
+
+
+# TRIGGERS ADD ────────
+@triggersc.child
 @lightbulb.option('responses', 'List of all responses. {| = separator},{<@u> = user mention}', required=True, type=str)
 @lightbulb.option('triggers', 'List of all triggers. {| = separator},{any:* = req anywhere},{sec:* = req anywhere},{* = equal}', required=True, type=str)
-@lightbulb.command('settriggers', 'Creates text triggers that will send a random set response')
-@lightbulb.implements(lightbulb.SlashCommand)
+@lightbulb.command('add', 'Adds text triggers that will send a random set response')
+@lightbulb.implements(lightbulb.SlashSubCommand)
 async def settriggers(ctx: lightbulb.Context) -> None:
     # Common variables.
     guild = ctx.guild_id
     triggers = ctx.options.triggers
     responses = ctx.options.responses
     custom = {}
+    limit = 20
     # Get and maintain any text triggers.
     texttriggers = get_guild_info(guild,'text_triggers')
-    if texttriggers: custom = texttriggers
+    if texttriggers:
+        if len(texttriggers) >= limit: await ctx.respond(f'─── TRIGGERS ─── Server reached maximum possible triggers. ({limit})', flags=hikari.MessageFlag.EPHEMERAL); return
+        custom = texttriggers
     # Create new text triggers and responses.
     custom[triggers] = responses
     update_guild_info(guild, 'text_triggers', custom)
-    await ctx.respond(f'─── TRIGGERS ─── Text triggers created.', flags=hikari.MessageFlag.EPHEMERAL)
+    await ctx.respond(f'─── TRIGGERS ─── Text triggers and responses added.', flags=hikari.MessageFlag.EPHEMERAL)
 
-# LIST RESPONSES ──────
-@bot.command
-@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
-@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
-@lightbulb.command('listtriggers', 'Lists all text triggers')
-@lightbulb.implements(lightbulb.SlashCommand)
+# TRIGGERS LIST ───────
+@triggersc.child
+@lightbulb.command('list', 'Lists all text triggers sorted by ID')
+@lightbulb.implements(lightbulb.SlashSubCommand)
 async def listtriggers(ctx: lightbulb.Context) -> None:
     # Common variables.
     guild = ctx.guild_id
     queuestr = ''; count : int = 0
     texttriggers = get_guild_info(guild,'text_triggers')
-    if not texttriggers: await ctx.respond(f'─── TRIGGERS ─── No triggers to list.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if not texttriggers: await ctx.respond(f'─── TRIGGERS ─── No triggers and responses to list.', flags=hikari.MessageFlag.EPHEMERAL); return
     # List all triggers.
     for i in texttriggers:
         triggers = i.replace('|', ' | ')[0:100]; responses = texttriggers[i].replace('|', ' | ')[0:100]
@@ -643,27 +662,120 @@ async def listtriggers(ctx: lightbulb.Context) -> None:
     embeded = (hikari.Embed(description=f'{queuestr}').set_footer(text=f'Trigger list and indexes'))
     await ctx.respond(content=embeded, flags=hikari.MessageFlag.EPHEMERAL)
 
-# DELETE RESPONSES ────
-@bot.command
-@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
-@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
+# TRIGGERS DELETE ─────
+@triggersc.child
 @lightbulb.option('triggerid', 'ID of specific trigger', required=True, min_value=0, type=int)
-@lightbulb.command('deltriggers', 'Delete specific trigger based on ID')
-@lightbulb.implements(lightbulb.SlashCommand)
+@lightbulb.command('del', 'Delete specific trigger based on ID')
+@lightbulb.implements(lightbulb.SlashSubCommand)
 async def deltriggers(ctx: lightbulb.Context) -> None:
     # Common variables.
     guild = ctx.guild_id
     triggerid : int = ctx.options.triggerid
-    # 
+    # Do the rest.
     texttriggers = get_guild_info(guild,'text_triggers')
     if not texttriggers: await ctx.respond(f'─── TRIGGERS ─── No triggers to delete.', flags=hikari.MessageFlag.EPHEMERAL); return
     if triggerid >= len(texttriggers): await ctx.respond(f'─── TRIGGERS ─── Trigger id not existent.', flags=hikari.MessageFlag.EPHEMERAL); return
     for s, i in list(enumerate(texttriggers)):
         if s == triggerid: del texttriggers[i]
     update_guild_info(guild, 'text_triggers', texttriggers)
-    await ctx.respond(f'─── TRIGGERS ─── Text trigger deleted.', flags=hikari.MessageFlag.EPHEMERAL)
+    await ctx.respond(f'─── TRIGGERS ─── Text triggers and responses deleted.', flags=hikari.MessageFlag.EPHEMERAL)
 
+# SOUNDBOARD ──────────
+@bot.command
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
+@lightbulb.command('soundboard', 'Soundboard command group')
+@lightbulb.implements(lightbulb.SlashCommandGroup)
+async def soundboard(): pass
 
+# SOUNDBOARD ADD ──────
+@soundboard.child
+@lightbulb.option('sound', 'Attached sound', required=True, type=hikari.OptionType.ATTACHMENT)
+@lightbulb.option('triggers', 'List of all triggers. {| = separator},{any:* = req anywhere},{sec:* = req anywhere},{* = equal}', required=True, type=str)
+@lightbulb.command('add', 'Adds sound and triggers to the soundboard')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def soundboardadd(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    triggers = ctx.options.triggers
+    att : hikari.Attachment = ctx.options.sound
+    filename = att.filename
+    url = att.url
+    audiodir = './audios'
+    guilddir = f'{audiodir}/{guild}'
+    custom = {}
+    limit = 20
+    # Check if file is .mp3 or has a maximum of 1 MB.
+    if not att.filename.endswith('.mp3'): await ctx.respond(f'─── SOUNDBOARD ─── Attachment must be an `.mp3` file.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if att.size >= 1048576: await ctx.respond(f'─── SOUNDBOARD ─── Attachment must have a maximum of 1 MB. Your file has {convert_size(att.size)}.', flags=hikari.MessageFlag.EPHEMERAL); return
+    # Get and maintain any sound triggers.
+    soundtriggers = get_guild_info(guild,'sound_triggers')
+    if soundtriggers:
+        if len(soundtriggers) >= limit: await ctx.respond(f'─── SOUNDBOARD ─── Server reached maximum possible sounds. ({limit})', flags=hikari.MessageFlag.EPHEMERAL); return
+        custom = soundtriggers
+    # Create new sound triggers and sound name.
+    custom[triggers] = filename
+    update_guild_info(guild, 'sound_triggers', custom)
+    # Get sound file.
+    r = requests.get(url)
+    # Create required folders.
+    if not os.path.isdir(audiodir): os.mkdir(audiodir)
+    if not os.path.isdir(guilddir): os.mkdir(guilddir)
+    # Save sound file.
+    with open(f'{guilddir}/{filename}', 'wb') as outfile:
+        outfile.write(r.content)
+    await ctx.respond(f'─── SOUNDBOARD ─── Sound and triggers added.', flags=hikari.MessageFlag.EPHEMERAL)
+
+# SOUNDBOARD LIST ─────
+@soundboard.child
+@lightbulb.command('list', 'Lists all sounds and triggers sorted by ID')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def soundboardlist(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    queuestr = ''; count : int = 0
+    soundtriggers = get_guild_info(guild,'sound_triggers')
+    if not soundtriggers: await ctx.respond(f'─── SOUNDBOARD ─── No sound and triggers to list.', flags=hikari.MessageFlag.EPHEMERAL); return
+    # List all sounds.
+    for i in soundtriggers:
+        triggers = i.replace('|', ' | ')[0:100]; sound = soundtriggers[i].replace('|', ' | ')[0:100]
+        queuestr += f'\n```#{count:02d} : ──────────\n\n─── TRIGGERS ───\n> [ {triggers} ] . . .\n─── SOUND ──\n> [ {sound} ]```'; count += 1
+    # Create and send embeded.
+    embeded = (hikari.Embed(description=f'{queuestr}').set_footer(text=f'Soundboard list and indexes'))
+    await ctx.respond(content=embeded, flags=hikari.MessageFlag.EPHEMERAL)
+
+# SOUNDBOARD DEL ──────
+@soundboard.child
+@lightbulb.option('soundid', 'ID of specific sound', required=True, min_value=0, type=int)
+@lightbulb.command('del', 'Delete specific sound based on ID')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def soundboarddel(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    soundid : int = ctx.options.soundid
+    audiodir = './audios'
+    guilddir = f'{audiodir}/{guild}'
+    # Do the rest.
+    soundtriggers = get_guild_info(guild,'sound_triggers')
+    if not soundtriggers: await ctx.respond(f'─── SOUNDBOARD ─── No sound and triggers to delete.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if soundid >= len(soundtriggers): await ctx.respond(f'─── SOUNDBOARD ─── Sound id not existent.', flags=hikari.MessageFlag.EPHEMERAL); return
+    for s, i in list(enumerate(soundtriggers)):
+        if s == soundid: os.remove(f'{guilddir}/{soundtriggers[i]}'); del soundtriggers[i]
+    update_guild_info(guild, 'sound_triggers', soundtriggers)
+    await ctx.respond(f'─── SOUNDBOARD ─── Sound and triggers deleted.', flags=hikari.MessageFlag.EPHEMERAL)
+
+# SOUNDBOARD TOGGLE ───
+@soundboard.child
+@lightbulb.command('toggle', 'Toggle soundboard')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def soundboardadd(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    # Toggle soundboard.
+    soundboard = get_guild_info(guild, 'soundboard_enabled')
+    if soundboard == "true": update_guild_info(guild, 'soundboard_enabled', 'false'); await ctx.respond(f'─── SOUNDBOARD ─── Soundboard deactivated.', flags=hikari.MessageFlag.EPHEMERAL)
+    else: update_guild_info(guild, 'soundboard_enabled', 'true'); await ctx.respond(f'─── SOUNDBOARD ─── Soundboard activated.', flags=hikari.MessageFlag.EPHEMERAL)
+    
 
 
 
@@ -731,6 +843,32 @@ async def on_message(message : hikari.GuildMessageCreateEvent):
                 # Randomly send final response message.
                 finalresp = random.choice(resps)
                 await bot.rest.create_message(channel, f'{finalresp}')
+    
+    if guild.id in guildvb:
+        soundboard = get_guild_info(guild.id, 'soundboard_enabled')
+        if soundboard == 'true':
+            soundtriggers = get_guild_info(guild.id, 'sound_triggers')
+            if soundtriggers and content:
+                for trigger in soundtriggers:
+                    # Common variables.
+                    complete = []; words1 = []; words2 = []
+                    # Get triggers and responses.
+                    triggers = trigger.split('|')
+                    sound = soundtriggers[trigger]
+                    soundpath = f'{guild.id}/{sound}'
+                    # Get trigger type.
+                    for word in triggers:
+                        if word.startswith('any:'): words1.append(word.removeprefix('any:'))
+                        elif word.startswith('sec:'): words2.append(word.removeprefix('sec:'))
+                        else: complete.append(word)
+                    # Variables to check if triggers are in the message.
+                    cany = any(x in content.lower() for x in words1)
+                    csec = any(x in content.lower() for x in words2)
+                    ccomp = any(x == content.lower() for x in complete)
+                    # Check combination to see if its possible.
+                    if (cany and not words2) or (cany and csec and words1 and words2) or ccomp:
+                        # Play sound if bot is in voice channel.
+                        await play_audio(guild.id, soundpath)
 
     # Print user action and messages for debugging purposes.
     if not content: content = '── EMPTY MESSAGE or EMBEDED MESSAGE ── ]]]'
@@ -751,6 +889,7 @@ async def on_slashcommand(invoc : lightbulb.SlashCommandInvocationEvent):
             print(f'< {author.id} ||| {author.username}> <C>: Used {command} < < < <')
     except: return
 
+"""
 @bot.listen(lightbulb.PrefixCommandErrorEvent)
 async def on_error(event: lightbulb.PrefixCommandErrorEvent) -> None: return
 @bot.listen(lightbulb.SlashCommandErrorEvent)
@@ -765,20 +904,20 @@ async def on_error(event: lightbulb.SlashCommandErrorEvent) -> None:
     elif isinstance(exception, lightbulb.NotEnoughArguments): resp = f"─── Missing Arguments! ─── Command is expected to have more arguments."
     else: resp = f"─── Error! ─── Command could not execute."
     await event.context.respond(resp, flags=hikari.MessageFlag.EPHEMERAL)
+"""
 
 
 
 
 
-#secs = 15
+#secs = 30
 #def update_servers():
 #    print('Updated servers!')
+#    for guild in guildvb:
+#        asyncio.run(update_playlist(guild))
 #    t = Timer(secs, update_servers)
 #    t.start()
 #update_servers()
-
-
-
 
 # START ───────────────
 @bot.listen(hikari.StartedEvent)
