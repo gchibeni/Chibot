@@ -245,7 +245,7 @@ async def play(ctx: lightbulb.Context) -> None:
             if playlist:
                 if playlist == 'no_auth': await ctx.edit_last_response(f'─── MEDIA ─── Spotify authentification is invalid. Tell the bot owner to use `/spotifyauth` to update authenticator.'); return
                 for music in playlist:
-                    if guild not in guildvb[guild]: return
+                    if guild not in guildvb: return
                     # Get media url and title.
                     media = await get_media(music)
                     title = await get_media_title(media)
