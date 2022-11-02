@@ -157,7 +157,12 @@ async def update_playlist(guild):
     if guildvb[guild].reqs and guildvb[guild].reqs[0].user:
         # Reverse playlist to be listed on message.
         for s, i in reversed(list(enumerate(guildvb[guild].reqs))):
-            if s != 0: queuestr += f'```#{s:02d} : {i.title}```'
+            if s > 49:
+                queuestr += f'```#.. : List is too long . . .```'
+                lastid = len(guildvb[guild].reqs)-1
+                queuestr += f'```#{(lastid):02d} : {guildvb[guild].reqs[lastid].title}```'
+                break
+            elif s != 0: queuestr += f'```#{s:02d} : {i.title}```'
             else: playing = f'\n──────── Playing ────────\n ```#00 : {i.title}```'; user = i.user
         # Create embeded message for when there is music playing.
         embeded = (hikari.Embed(description=f'{queuestr+playing}').set_footer(icon=user.avatar_url,text=f'Requested by ➜ {user.username} '))
@@ -240,9 +245,10 @@ async def play(ctx: lightbulb.Context) -> None:
             if playlist:
                 if playlist == 'no_auth': await ctx.edit_last_response(f'─── MEDIA ─── Spotify authentification is invalid. Tell the bot owner to use `/spotifyauth` to update authenticator.'); return
                 for music in playlist:
+                    if guild not in guildvb[guild]: return
                     # Get media url and title.
                     media = await get_media(music)
-                    title = await get_youtube_title(media)
+                    title = await get_media_title(media)
                     # Checks if media exists.
                     if media and title:
                         print(f'{media} - {title}')
