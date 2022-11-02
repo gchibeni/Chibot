@@ -122,7 +122,7 @@ async def get_media_title(url):
     except:
         return False
 
-def get_youtube_title(url):
+async def get_youtube_title(url):
     params = {'format': 'json', 'url': '%s' % url}
     urljson = f'https://www.youtube.com/oembed?{urllib.parse.urlencode(params)}'
     with urllib.request.urlopen(urljson) as response:
@@ -167,7 +167,7 @@ async def update_playlist(guild):
     try: await bot.rest.edit_message(channel=messageid[0],message=messageid[1],content=embeded)
     except: print(f'< Music <X>: Could not update playlist message.')
 
-def get_spotify_playlist(url):
+async def get_spotify_playlist(url):
     spotifyauth = get_guild_info('bot_info', 'spotify_auth')
     if not spotifyauth: return
     auth = spotifyauth.split('/')
@@ -236,13 +236,13 @@ async def play(ctx: lightbulb.Context) -> None:
             spotifyauth = get_guild_info('bot_info', 'spotify_auth')
             if not spotifyauth: await ctx.edit_last_response(f'─── MEDIA ─── Spotify is currently disabled. Tell the bot owner to use `/spotifyauth` to authenticate into a developer application so this function can be activated.'); return
             # Extract each item from spotify playlist.
-            playlist = get_spotify_playlist(prompt)
+            playlist = await get_spotify_playlist(prompt)
             if playlist:
                 if playlist == 'no_auth': await ctx.edit_last_response(f'─── MEDIA ─── Spotify authentification is invalid. Tell the bot owner to use `/spotifyauth` to update authenticator.'); return
                 for music in playlist:
                     # Get media url and title.
                     media = await get_media(music)
-                    title = get_youtube_title(media)
+                    title = await get_youtube_title(media)
                     # Checks if media exists.
                     if media and title:
                         print(f'{media} - {title}')
@@ -253,7 +253,7 @@ async def play(ctx: lightbulb.Context) -> None:
         elif prompt.startswith('http://') or prompt.startswith('https://'):
             # Get media url and title.
             media = prompt
-            if '.youtube.com/' in prompt: title = get_youtube_title(media)
+            if '.youtube.com/' in prompt: title = await get_youtube_title(media)
             else: title = await get_media_title(prompt)
             # Checks if media exists.
             if media and title:
@@ -264,7 +264,7 @@ async def play(ctx: lightbulb.Context) -> None:
         else:
             # Get media url and title.
             media = await get_media(prompt)
-            title = get_youtube_title(media)
+            title = await get_youtube_title(media)
             # Checks if media exists.
             if media and title:
                 # Add media to playlist list.
