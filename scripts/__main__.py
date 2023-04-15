@@ -2,7 +2,6 @@ import os
 from getpass import getpass
 from colorama import Fore
 from colorama import Style
-import youtube_dl
 
 file = 'token.secret'
 exists = os.path.isfile(f'./{file}')
