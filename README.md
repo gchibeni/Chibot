@@ -12,12 +12,12 @@ You should create a discord application on the discord developer page, add it to
 This bot uses hikari, hikari-lightbulb and songbird-py, and may require some tools instalations on your system.
 Them being: "opus-tools", "libopus0", "ffmpeg", "youtube-dl" restart the system after installing them so it does not glitch.
 
-Here is how you can install them on a raspberry pi
+Required Libs to install using "apt-get", "brew" or "choco":
 ```bash
-sudo apt-get install opus-tools
-sudo apt-get install libopus0
-sudo apt-get install ffmpeg
-sudo apt-get install youtube-dl
+opus-tools
+libopus0 or libopus
+ffmpeg
+yt-dlp
 ```
 
 Start a new command line (Terminal Command) and change the directory to the bot initial folder.
