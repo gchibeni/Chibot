@@ -418,8 +418,8 @@ async def flip(ctx: lightbulb.Context) -> None:
     # Common variables.
     flipped = random.randint(0, 1)
     # Flip coin.
-    if flipped == 0: await ctx.respond(f'─── FLIP ─── Flipped ➜ :heads:')
-    else: await ctx.respond(f'─── FLIP ─── Flipped ➜ :tails:')
+    if flipped == 0: await ctx.respond(f'<a:heads:1163294205033062400>')
+    else: await ctx.respond(f'<a:tails:1163293766791204874>')
 
 # ROLL ────────────────
 @bot.command
