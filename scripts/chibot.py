@@ -1,3 +1,5 @@
+#region INIT
+
 import asyncio
 import random
 import hikari
@@ -13,15 +15,14 @@ import math
 import requests
 import signal
 import sys
+import pyotp
 
 from spotipy.oauth2 import SpotifyClientCredentials
 from functools import partial
 from songbird import ytdl, Queue
 from songbird.hikari import Voicebox
 from typing import Dict, List, Sequence
-
 from threading import Timer
-
 
 # Get and read bot token.
 with open('./token.secret') as f:
@@ -29,6 +30,10 @@ with open('./token.secret') as f:
 
 # Create bot instance.
 bot = lightbulb.BotApp(token=token, prefix='/', intents=hikari.Intents.ALL)
+
+#endregion
+
+#region FUNCTIONS
 
 # ─────────────── COMMON FUNCTIONS ───────────────
 
@@ -81,6 +86,9 @@ def convert_size(size_bytes):
    s = round(size_bytes / p, 2)
    return "%s %s" % (s, size_name[i])
 
+#endregion
+
+#region MUSIC
 
 # ──────────────── MUSIC COMMANDS ────────────────
 
@@ -372,9 +380,9 @@ async def spotifyauth(ctx: lightbulb.Context) -> None:
     update_guild_info('bot_info', 'spotify_auth', auth)
     await ctx.respond(f'─── MEDIA ─── Spotify authenticator updated.', flags=hikari.MessageFlag.EPHEMERAL)
 
+#endregion
 
-
-
+#region COMMON
 
 # ──────────────── COMMON COMMANDS ───────────────
 
@@ -612,6 +620,10 @@ async def cleardm(ctx: lightbulb.Context) -> None:
         except: continue
     await ctx.edit_last_response(f'─── DM ─── Bot messages cleared.')
 
+#endregion
+
+#region TRIGGERS
+
 # TRIGGERS ────────────
 @bot.command
 @lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
@@ -679,6 +691,10 @@ async def deltriggers(ctx: lightbulb.Context) -> None:
         if s == triggerid: del texttriggers[i]
     update_guild_info(guild, 'text_triggers', texttriggers)
     await ctx.respond(f'─── TRIGGERS ─── Text triggers and responses deleted.', flags=hikari.MessageFlag.EPHEMERAL)
+
+#endregion
+
+#region SOUNDBOARD
 
 # SOUNDBOARD ──────────
 @bot.command
@@ -775,14 +791,102 @@ async def soundboardadd(ctx: lightbulb.Context) -> None:
     soundboard = get_guild_info(guild, 'soundboard_enabled')
     if soundboard == "true": update_guild_info(guild, 'soundboard_enabled', 'false'); await ctx.respond(f'─── SOUNDBOARD ─── Soundboard deactivated.', flags=hikari.MessageFlag.EPHEMERAL)
     else: update_guild_info(guild, 'soundboard_enabled', 'true'); await ctx.respond(f'─── SOUNDBOARD ─── Soundboard activated.', flags=hikari.MessageFlag.EPHEMERAL)
-    
 
+#endregion
 
+#region AUTHY
 
+# GROUP AUTH ──────────
+@bot.command
+@lightbulb.app_command_permissions(perms=hikari.Permissions.MANAGE_GUILD, dm_enabled=False)
+@lightbulb.add_checks(lightbulb.has_guild_permissions(hikari.Permissions.MANAGE_GUILD))
+@lightbulb.command('auth', 'Authentication code command group')
+@lightbulb.implements(lightbulb.SlashCommandGroup)
+async def authygrp(): pass
 
+# AUTHY ──────────
+@bot.command
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option('authname', 'Simple authenticator name to be called', required=True, type=str)
+@lightbulb.command('authy', 'Get an authentication code from the specific authname')
+@lightbulb.implements(lightbulb.SlashCommand)
+async def authy(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    authname : int = ctx.options.authname.lower().replace(" ", "")
+    authenticators = get_guild_info(guild,'authenticators')
+    # Conditonals
+    if not authenticators: await ctx.respond(f'─── AUTHY ─── No authenticators found.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if not authenticators[authname]: await ctx.respond(f'─── AUTHY ─── Authenticator not found.', flags=hikari.MessageFlag.EPHEMERAL); return
+    # Fetch auth code
+    authy_secret = authenticators[authname].lower().replace(" ", "")
+    totp = pyotp.TOTP(authy_secret)
+    authy_code = totp.now()
+    # Send auth code to user
+    await ctx.respond(f'─── AUTHY ─── Auth code for {authname}: `{authy_code}`.', flags=hikari.MessageFlag.EPHEMERAL)
+    # Send security message
 
-# LISTENERS ────────────
+# AUTHY LIST ─────
+@authygrp.child
+@lightbulb.command('list', 'Lists all Authenticators sorted by ID')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def authylist(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    queuestr = ''; count : int = 0
+    authenticators = get_guild_info(guild,'authenticators')
+    if not authenticators: await ctx.respond(f'─── AUTHY ─── No authenticators to list.', flags=hikari.MessageFlag.EPHEMERAL); return
+    # List all sounds.
+    for i in authenticators:
+        queuestr += f'\n```#{count:02d} : {i}```'; count += 1
+    # Create and send embeded.
+    embeded = (hikari.Embed(description=f'{queuestr}').set_footer(text=f'Authenticators list and indexes'))
+    await ctx.respond(content=embeded, flags=hikari.MessageFlag.EPHEMERAL)
 
+# AUTHY DEL ──────
+@authygrp.child
+@lightbulb.option('authid', 'ID of specific authenticator', required=True, min_value=0, type=int)
+@lightbulb.command('del', 'Delete specific authenticator based on ID')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def authydel(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    authyid : int = ctx.options.authid
+    # Do the rest.
+    authenticators = get_guild_info(guild,'authenticators')
+    if not authenticators: await ctx.respond(f'─── AUTHY ─── No authenticators to delete.', flags=hikari.MessageFlag.EPHEMERAL); return
+    if authyid >= len(authenticators): await ctx.respond(f'─── AUTHY ─── Authenticator id not existent.', flags=hikari.MessageFlag.EPHEMERAL); return
+    for s, i in list(enumerate(authenticators)):
+        if s == authyid: del authenticators[i]
+    update_guild_info(guild, 'authenticators', authenticators)
+    await ctx.respond(f'─── AUTHY ─── Authenticator deleted.', flags=hikari.MessageFlag.EPHEMERAL)
+
+# AUTHY ADD ──────
+@authygrp.child
+@lightbulb.option('authkey', 'Authenticator secret key provided by the website you want to access', required=True, type=str)
+@lightbulb.option('authname', 'Simple authenticator name to be called', required=True, type=str)
+@lightbulb.command('add', 'Adds authenticators to server')
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def soundboardadd(ctx: lightbulb.Context) -> None:
+    # Common variables.
+    guild = ctx.guild_id
+    authname = ctx.options.authname.lower().replace(" ", "")
+    authkey = ctx.options.authkey.lower().replace(" ", "")
+    custom = {}
+    limit = 10
+    # Get and maintain any authenticators.
+    authenticators = get_guild_info(guild,'authenticators')
+    if authenticators:
+        if len(authenticators) >= limit: await ctx.respond(f'─── AUTHY ─── Server reached maximum possible authenticators. ({limit})', flags=hikari.MessageFlag.EPHEMERAL); return
+        custom = authenticators
+    # Create new sound triggers and sound name.
+    custom[authname] = authkey
+    update_guild_info(guild, 'authenticators', custom)
+    await ctx.respond(f'─── AUTHY ─── Authenticator added.', flags=hikari.MessageFlag.EPHEMERAL)
+
+#endregion
+
+#region LISTENERS
 
 @bot.listen(hikari.VoiceStateUpdateEvent)
 async def bot_disconnect(event : hikari.VoiceStateUpdateEvent):
@@ -906,9 +1010,9 @@ async def on_error(event: lightbulb.SlashCommandErrorEvent) -> None:
     await event.context.respond(resp, flags=hikari.MessageFlag.EPHEMERAL)
 """
 
+#endregion
 
-
-
+#region START
 
 #secs = 30
 #def update_servers():
@@ -919,10 +1023,11 @@ async def on_error(event: lightbulb.SlashCommandErrorEvent) -> None:
 #    t.start()
 #update_servers()
 
-# START ───────────────
 @bot.listen(hikari.StartedEvent)
 async def bot_started(event : hikari.StartedEvent) -> None:
     print(f'─── STATUS ─── Application is up and running!')
 
 _activity = hikari.Activity(name='────────', type=hikari.ActivityType.PLAYING)
 bot.run(check_for_updates=True, activity=_activity)
+
+#endregion
