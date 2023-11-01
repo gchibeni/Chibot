@@ -13,6 +13,7 @@ Relevant Features:
 - Musics from Youtube, Spotify or any URL
 - Perfect music list & display
 - Accessibility & Admin features
+- AUTH CODES for guild features
 
 ### ─── Preparations :
 
