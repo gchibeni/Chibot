@@ -15,5 +15,4 @@ if not exists:
     print(f'{Fore.YELLOW}> TOKEN CREATED{Style.RESET_ALL}')
 # If it exists start up the bot.
 if exists:
-    from scripts import chibot
-    chibot
+    import scripts.chibot
