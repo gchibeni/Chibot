@@ -1,4 +1,3 @@
-from scripts import localization
 import random
 import os
 import json
@@ -11,6 +10,7 @@ import pyotp
 
 #region Variables
 
+maintenance = False
 lang = "en"
 
 # Configure youtube_dl to get audio from URL
@@ -89,7 +89,7 @@ def SetInfo(guild:int, key:str, value) -> json:
         return None
     # Try getting existent info.
     data:json = {}
-    filePath = 'guilds.json'
+    filePath = 'settings.json'
     guildId = f'{guild}'
     exists = os.path.isfile(f'./{filePath}')
     if exists:
@@ -148,8 +148,12 @@ def GetInfo(guild, key, default = None):
             # Return default if key was not found.
             return default
         lastToken = lastToken[token]
-    # Return key value.
-    return lastToken[tokens[-1]]
+    
+    if tokens[-1]:
+        # Return key value.
+        return lastToken[tokens[-1]]
+    else:
+        return None
     ...
 
 #endregion
@@ -157,12 +161,20 @@ def GetInfo(guild, key, default = None):
 #region Localization
 
 def Localize(key:str, *args) -> str:
+    data:json = {}
+    filePath = 'locale.json'
+    exists = os.path.isfile(f'./{filePath}')
+    if exists:
+        with open(filePath, 'r+', encoding='utf-8') as file:
+            try: data = json.load(file)
+            except: data = {}
+
     keyLower:str = key.lower()
-    if keyLower in localization.data:
-        if lang in localization.data:
-            return ReplaceArguments(localization.data[keyLower][lang], *args)
+    if keyLower in data:
+        if lang in data:
+            return ReplaceArguments(data[keyLower][lang], *args)
         elif "en" in lang:
-            return ReplaceArguments(localization.data[keyLower]["en"], *args)
+            return ReplaceArguments(data[keyLower]["en"], *args)
     return f"({keyLower}) - Localization not found."
 
 def ReplaceArguments(template:str, *args) -> str:

@@ -25,12 +25,12 @@ class bot_events(commands.Bot):
         async def on_ready():
             # Initialize all cogs.
             await bot.wait_until_ready()
+            cogs = []
             for filename in os.listdir("./scripts/cogs"):
                 if (filename.endswith('.py')):
                     await bot.load_extension(f'scripts.cogs.{filename[:-3]}')
-            await bot.tree.sync(guild=discord.Object(id=295732646535757828))
-            #tree.add_command(triggerGroup)
-            print(f'\n{Fore.GREEN}─── STATUS ─── Application is up and running!\n[─ Connected as: \"{bot.user}\" ─]{Fore.RESET}\n')
+                    cogs.append(filename[:-3])
+            print(f"\n{Fore.GREEN}─── STATUS ───\n> Cogs started: \"{", ".join(cogs)}\"\n> Connected as: \"{bot.user}\"\n──────────────{Fore.RESET}\n")
             check_updates.start()
 
         @bot.event
@@ -51,11 +51,23 @@ class bot_events(commands.Bot):
             guild = message.guild
             content = message.content
             channel = message.channel.id
+            is_owner = await bot.is_owner(message.author)
             # Check if guild message or private.
             if not guild:
                 directed = "Private DM"
             else:
                 directed = guild.name
+                # Check if called sync command on guild.
+                if is_owner and content.lower() == "!sync here":
+                    print ("> SYNCING COMMANDS...")
+                    await message.delete()
+                    await bot.tree.sync(guild=discord.Object(id=message.guild.id))
+            # Check if called sync command anywhere.
+            if is_owner and content.lower() == "!sync all":
+                print ("> SYNCING COMMANDS...")
+                await message.delete()
+                await bot.tree.sync()
+                
 
             # Check triggers.
             # (Implement trigger checking here)

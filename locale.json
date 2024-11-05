@@ -1,5 +1,4 @@
-import json;
-data : json = {
+{
     "require_connected":
     {
         "en":"<arg1>"
@@ -8,91 +7,80 @@ data : json = {
     {
         "en":"We have started recording...<arg1>"
     },
-    "":
+    "bot_status":
     {
-        "en":""
+        "en":"This is the bot status: <arg1> <arg2>"
     },
-    #region Auth ────────────────
     "auth_added":
     {
-        "en":"-"
+        "en":"-auth_added"
     },
     "auth_removed":
     {
-        "en":"-"
+        "en":"-auth_remove <arg1>"
     },
     "auth_found":
     {
-        "en":"-"
+        "en":"-auth_found `<arg1>`"
     },
     "auth_not_found":
     {
-        "en":"-"
+        "en":"-auth_not_found"
     },
     "auth_small_name":
     {
-        "en":"-"
+        "en":"-auth_small_name"
     },
     "auth_big_name":
     {
-        "en":"-"
+        "en":"-auth_big_name"
     },
     "auth_invalid_code":
     {
-        "en":"-"
+        "en":"-auth_invalid_code"
     },
     "auth_limit":
     {
-        "en":"-"
+        "en":"-auth_limit"
     },
     "auth_add_title":
     {
-        "en":"-"
+        "en":"-auth_add_title"
     },
     "auth_name_label":
     {
-        "en":"-"
+        "en":"-auth_name_label"
     },
     "auth_code_label":
     {
-        "en":"-"
+        "en":"-auth_code_label"
     },
     "auth_index_list_label":
     {
-        "en":"-"
+        "en":"-auth_index_list_label"
     },
     "authy_description":
     {
-        "en":"-"
+        "en":"-authy_description"
     },
     "auth_add_description":
     {
-        "en":"-"
+        "en":"-auth_add_description"
     },
     "auth_remove_description":
     {
-        "en":"-"
+        "en":"-auth_remove_description"
     },
     "auth_list_description":
     {
-        "en":"-"
+        "en":"-auth_list_description"
     },
     "auth_name_describe":
     {
-        "en":"-"
+        "en":"-auth_name_describe"
     },
     "auth_code_describe":
     {
-        "en":"-"
-    },
-    #endregion
+        "en":"-auth_code_describe"
+    }
 }
-
-
-# Template
-"""
-    "":
-    {
-        "en":""
-    },
-"""

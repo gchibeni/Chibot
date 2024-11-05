@@ -3,12 +3,12 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import pyotp
+import time
 
 #region Initialization
 
 async def setup(bot: commands.Bot):
-    print("Cog added - Auth")
-    bot.tree.add_command(commands_auth(name="auth", description="-", guild_ids=[295732646535757828]))
+    bot.tree.add_command(commands_auth(name="auth", description="-"))
     await bot.add_cog(commands_authy(bot))
 
 #endregion
@@ -21,36 +21,37 @@ class commands_authy(commands.Cog):
     
     # AUTHY ────────────────
     @app_commands.command(name="authy", description = settings.Localize("authy_description"))
-    @app_commands.guilds(295732646535757828)
     @app_commands.guild_only()
     @app_commands.describe(name=settings.Localize("auth_name_describe"))
     async def authy(self, ctx: discord.Interaction, name:str):
         # Check parameters.
         if len(name) < 3:
-            await ctx.response.send_message(settings.Localize("auth_small_name"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_small_name"), ephemeral=True, delete_after=5)
             return
         if len(name) > 35:
-            await ctx.response.send_message(settings.Localize("auth_big_name"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_big_name"), ephemeral=True, delete_after=5)
             return
         # Check if auth is valid.
         auth_secret:str = settings.GetInfo(ctx.guild_id, f"authenticators/{name}")
         auth_secret = auth_secret.lower().replace(" ", "")
         if auth_secret is None:
-            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True, delete_after=5)
             return
-        if settings.isValidAuth(auth_secret):
-            await ctx.response.send_message(settings.Localize("auth_invalid_code"), ephemeral=True)
+        if not settings.isValidAuth(auth_secret):
+            await ctx.response.send_message(settings.Localize("auth_invalid_code"), ephemeral=True, delete_after=5)
             return
         # Send code to user.
-        auth_code = pyotp.TOTP(auth_secret).now()
-        await ctx.response.send_message(settings.Localize("auth_found", auth_code), ephemeral=True)
+        totp = pyotp.TOTP(auth_secret)
+        auth_code = totp.now()
+        time_remaining = totp.interval - (time.time() % totp.interval)
+        await ctx.response.send_message(settings.Localize("auth_found", auth_code), ephemeral=True, delete_after=time_remaining)
 
 class commands_auth(app_commands.Group):
     # ADD ────────────────
     @app_commands.command(name="add", description = settings.Localize("auth_add_description"))
-    @app_commands.guilds(295732646535757828)
     @app_commands.guild_only()
     @app_commands.describe(name=settings.Localize("auth_name_describe"), code = settings.Localize("auth_code_describe"))
+    @app_commands.checks.has_permissions(administrator=True)
     async def auth_add(self, ctx: discord.Interaction, name:str = None, code:str = None):
         # Check parameters.
         if id is None or code is None:
@@ -58,35 +59,34 @@ class commands_auth(app_commands.Group):
             await ctx.response.send_modal(auth_modal)
             return
         if len(name) < 3:
-            await ctx.response.send_message(settings.Localize("auth_small_name"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_small_name"), ephemeral=True, delete_after=5)
             return
         if len(name) > 35:
-            await ctx.response.send_message(settings.Localize("auth_big_name"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_big_name"), ephemeral=True, delete_after=5)
             return
         # Check if auth code is valid.
         if not settings.isValidAuth(code):
-            await ctx.response.send_message(settings.Localize("auth_invalid_code"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_invalid_code"), ephemeral=True, delete_after=5)
             return
         # Add auth to guild list.
         settings.SetInfo(ctx.guild_id, f"authenticators/{name}", code)
-        await ctx.response.send_message(settings.Localize("auth_added", name), ephemeral=True)
+        await ctx.response.send_message(settings.Localize("auth_added", name), ephemeral=True, delete_after=5)
         ...
 
     # DEL ────────────────
     @app_commands.command(name="remove", description = settings.Localize("auth_remove_description"))
-    @app_commands.guilds(295732646535757828)
     @app_commands.guild_only()
     @app_commands.describe(name=settings.Localize("auth_name_describe"))
     async def auth_remove(self, ctx: discord.Interaction, name:str):
         # Check parameters.
         if len(name) < 3 or len(name) > 35:
-            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True, delete_after=5)
             return
         # Check if any auth was found.
         auth_secret:str = settings.GetInfo(ctx.guild_id, f"authenticators/{name}")
         auth_secret = auth_secret.lower().replace(" ", "")
         if auth_secret is None:
-            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True, delete_after=5)
             return
         # Delete matching auth.
         settings.SetInfo(ctx.guild_id, f"authenticators/{name}", None)
@@ -95,13 +95,12 @@ class commands_auth(app_commands.Group):
 
     # LIST ────────────────
     @app_commands.command(name="list", description = settings.Localize("auth_list_description"))
-    @app_commands.guilds(295732646535757828)
     @app_commands.guild_only()
     async def auth_list(self, ctx: discord.Interaction):
         # Check if any auth was found.
         auths = settings.GetInfo(ctx.guild_id, "authenticators")
         if not auths:
-            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True)
+            await ctx.response.send_message(settings.Localize("auth_not_found"), ephemeral=True, delete_after=5)
             return
         # List all authenticators.
         list_str = ''; count : int = 0
