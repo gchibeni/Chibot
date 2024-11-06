@@ -16,10 +16,9 @@ class bot_events(commands.Bot):
         
         @tasks.loop(seconds=1)
         async def check_updates():
-            #print(f'\rChecking for updates...\n', end='', flush=True)
-            # Check all reminders.
-            # Foreach server check if there are avatar changes.
-            pass
+            # Foreach server check if there are icon changes.
+            await settings.RotateGuildsIcons(bot)
+            ...
 
         @bot.event
         async def on_ready():
@@ -32,6 +31,7 @@ class bot_events(commands.Bot):
                     cogs.append(filename[:-3])
             print(f"\n{Fore.GREEN}─── STATUS ───\n> Cogs started: \"{", ".join(cogs)}\"\n> Connected as: \"{bot.user}\"\n──────────────{Fore.RESET}\n")
             check_updates.start()
+            ...
 
         @bot.event
         async def on_member_join(member):

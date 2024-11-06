@@ -5,6 +5,7 @@ import math
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from datetime import datetime, timezone, timedelta
 import yt_dlp
 import pyotp
 
@@ -12,6 +13,7 @@ import pyotp
 
 maintenance = False
 lang = "en"
+
 
 # Configure youtube_dl to get audio from URL
 ytdl_settings = {
@@ -51,47 +53,104 @@ def isValidAuth(auth_secret:str) -> bool:
         return False
     ...
 
-async def ChangeGuildIcon(bot: commands.Bot):
-    # # Check if the bot is connected to a guild (server)
-    # for guild in bot.guilds:
-    #     # Get a list of image files in the ICON_DIRECTORY
-    #     icons = [file for file in os.listdir(ICON_DIRECTORY) if file.endswith(('.png', '.jpg', '.jpeg'))]
-    #     if not icons:
-    #         print("No images found in the icons directory.")
-    #         return
+async def ChangeGuildIcon(guild_id:int, icon_name:str, bot: commands.Bot):
+    # Check if icon is already in use.
+    # Preventing changing icon everytime to the sameone.
+    current_icon = GetInfo(guild_id, "current_icon")
+    if current_icon == icon_name:
+        # print("Guild - Icon already in use.")
+        return
+    # Check folders and fetch icons.
+    path = f'./guilds/{guild_id}/icons'
+    os.makedirs(path, exist_ok=True)
+    icons = [file for file in os.listdir(path) if file.startswith(icon_name) and file.endswith(('.png', '.jpg', '.jpeg'))]
+    if not icons:
+        # print("Guild - Icon image not found in the directory.")
+        return
+    # Select first and only icon found.
+    icon_path = os.path.join(path, icons[0])
 
-    #     # Select an icon file randomly
-    #     icon_path = os.path.join(ICON_DIRECTORY, icons[0])
+    # Fetch specified guild.
+    guild:discord.Guild = bot.get_guild(guild_id)
+    if not guild:
+        # print ("Guild - No guild with specified id found.")
+        return
+
+    # Open and read the icon image file.
+    with open(icon_path, "rb") as icon_file:
+        icon_data = icon_file.read()
+        try:
+            # Edit the guild icon.
+            await guild.edit(icon=icon_data)
+            SetInfo(guild_id, "current_icon", icon_name)
+            print(f"Guild - Guild icon changed for \"{guild.name}\" to \"{icon_name}\"")
+        except:
+            print(f"Guild - Failed to change guild icon for \"{guild.name}\"")
+
+async def RotateGuildsIcons(bot: commands.Bot):
+    # Check if the bot is connected to a guild (server)
+    for guild in bot.guilds:
+        guild_icons = GetInfo(guild.id, "icons")
+
+        # Check if guild has an icon queue.
+        if not guild_icons:
+            # print(f"Guild ({guild.name})  - No avatars found for this guild.")
+            continue
+
+        # Fetch current time and year
+        current_time = datetime.now()
+        current_year = current_time.year
+        current_hour = current_time.hour
+
+        next_avatar = None
+        min_date_difference = timedelta.max
         
-    #     # Open and read the icon image file
-    #     with open(icon_path, "rb") as icon_file:
-    #         icon_data = icon_file.read()
-    #         try:
-    #             # Edit the guild (server) icon
-    #             await guild.edit(icon=icon_data)
-    #             print(f"Server icon changed for {guild.name} to {icon_path}")
-    #         except Exception as e:
-    #             print(f"Failed to change server icon for {guild.name}: {e}")
+        # Find next avatar to be used.
+        for date_id, avatar_data in guild_icons.items():
+            avatar_date_str = f'{date_id}-{current_year}'
+            avatar_date = datetime.strptime(avatar_date_str, f"%d-%m-%Y")
+            date_difference = abs(avatar_date - current_time)
+            if (date_difference > timedelta(0) and date_difference < min_date_difference):
+                min_date_difference = date_difference
+                next_avatar = (date_id, avatar_data)
+        
+        if not next_avatar:
+            # print(f"Guild - ({guild.name}) No avatar was picked.")
+            continue
+        
+        avatar_icon = next_avatar[1]["icon"]
+        avatar_sleep = next_avatar[1]["sleep"]
+        avatar_wake = next_avatar[1]["wake"]
+        can_sleep = avatar_sleep and avatar_wake
+        is_sleep_time = current_hour >= avatar_sleep or current_hour < avatar_wake
 
-    #     # Rotate the icon list to select a new one next time
-    #     icons.append(icons.pop(0))
-    pass
+        if can_sleep and is_sleep_time:
+            avatar_icon = f'{avatar_icon}_sleep'
+        await ChangeGuildIcon(guild.id, avatar_icon, bot)
 
+def IsValidDate(day, month, year):
+    try:
+        # Try getting date time.
+        datetime(day=day, month=month, year=year)
+        return True
+    except:
+        return False
+    
 #endregion
 
 #region Info
 
-def SetInfo(guild:int, key:str, value) -> json:
+def SetInfo(guild_id:int, key:str, value) -> json:
     # Check paramenters.
-    if not guild:
+    if not guild_id:
         return None
     if not key:
         return None
     # Try getting existent info.
     data:json = {}
-    filePath = 'settings.json'
-    guildId = f'{guild}'
-    exists = os.path.isfile(f'./{filePath}')
+    filePath = './settings.json'
+    guildId = f'{guild_id}'
+    exists = os.path.isfile(filePath)
     if exists:
         with open(filePath, 'r+', encoding='utf-8') as file:
             try: data = json.load(file)
@@ -119,15 +178,17 @@ def SetInfo(guild:int, key:str, value) -> json:
     return data
     ...
 
-def GetInfo(guild, key, default = None):
+    # 50 20 6 10 16 30 60
+
+def GetInfo(guild_id:int, key:str, default = None) -> json:
     # Check parameters.
-    if not guild:
+    if not guild_id:
         return None
     # Try getting existing info.
     data:json = {}
-    filePath = 'guilds.json'
-    guildId = f'{guild}'
-    exists = os.path.isfile(f'./{filePath}')
+    filePath = './settings.json'
+    guildId = f'{guild_id}'
+    exists = os.path.isfile(filePath)
     # Try getting existent info.
     if exists:
         with open(filePath, 'r+', encoding='utf-8') as file:
@@ -138,7 +199,7 @@ def GetInfo(guild, key, default = None):
         data[guildId] = {}
         return default
     if not key:
-        return data[guild]
+        return data[guildId]
     # Duplicate to get last token.
     lastToken = data[guildId]
     tokens = key.split("/")
@@ -149,10 +210,13 @@ def GetInfo(guild, key, default = None):
             return default
         lastToken = lastToken[token]
     
-    if tokens[-1]:
-        # Return key value.
-        return lastToken[tokens[-1]]
-    else:
+    try:
+        if tokens[-1]:
+            # Return key value.
+            return lastToken[tokens[-1]]
+        else:
+            return None
+    except:
         return None
     ...
 

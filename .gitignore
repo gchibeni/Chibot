@@ -28,6 +28,8 @@ MANIFEST
 *.secret
 audios/*.mp3
 guilds.json
+settings.json
+guilds/
 test.py
 *.ai
 

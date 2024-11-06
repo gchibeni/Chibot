@@ -2,6 +2,8 @@ from scripts import settings
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
+from datetime import time
+import os
 
 client:commands.Bot = None
 
@@ -39,13 +41,6 @@ class commands_admin(commands.Cog):
         if message:
             await ctx.channel.send(message)
 
-    @say.error
-    async def say_error(self, ctx: discord.Interaction, error):
-        if isinstance(error, app_commands.errors.MissingPermissions):
-            await ctx.response.send_message("You need to be an administrator to use this command.", ephemeral=True)
-        if isinstance(error, app_commands.errors.CheckFailure):
-            await ctx.response.send_message("You need to be an administrator to use this command.", ephemeral=True)
-
     # PURGE ────────────────
     @app_commands.command(name="purge", description = "Delete a specified number of messages in order in a channel.")
     @app_commands.guild_only()
@@ -58,3 +53,64 @@ class commands_admin(commands.Cog):
     @app_commands.describe(allow="Toggle pulling.")
     async def allow_pull(self, ctx: discord.Interaction, allow:bool = True):
         await ctx.response.send_message("Allow Pull", ephemeral=True)
+
+    # CHECK ICON ────────────────
+    @app_commands.command(name="checkicon", description = "-")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    async def check_icon(self, ctx: discord.Interaction):
+        await ctx.response.send_message("Checking icons...", ephemeral=True)
+        await settings.RotateGuildsIcons(client)
+
+    # CHECK ICON ────────────────
+    @app_commands.command(name="addicon", description = "-")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    async def add_icon(self, ctx: discord.Interaction, day:int, month:int, name:str, icon:discord.Attachment, sleep_icon:discord.Attachment = None, wake_hour:int = None, sleep_hour:int = None):
+        # Initialize variables.
+        icon_data = { "icon": name }
+        allowedTypes = {"image/png", "image/jpeg", "image/jpg", "image/gif"}
+        valid_date = settings.IsValidDate(day, month, 2024)
+        if not wake_hour: wake_hour = 8
+        if not sleep_hour: sleep_hour = 22
+        # Check parameters.
+        if not valid_date:
+            await ctx.response.send_message(settings.Localize("invalid_date"), ephemeral=True)
+            return
+        if len(name) < 3 and len(name) > 35:
+            await ctx.response.send_message(settings.Localize("invalid_name_lenght"), ephemeral=True)
+            return
+        if sleep_icon:
+            if not wake_hour:
+                await ctx.response.send_message(settings.Localize("requires_awake_hour"), ephemeral=True)
+                return
+            if not sleep_hour:
+                await ctx.response.send_message(settings.Localize("requires_sleep_hour"), ephemeral=True)
+                return
+            if (wake_hour < 0 and wake_hour > 24) or (sleep_hour < 0 and sleep_hour > 24):
+                await ctx.response.send_message(settings.Localize("invalid_hour"), ephemeral=True)
+                return
+        if (wake_hour or sleep_hour) and not sleep_icon:
+            await ctx.response.send_message(settings.Localize("requires_icon"), ephemeral=True)
+            return
+        if icon.content_type not in allowedTypes or sleep_icon.content_type not in allowedTypes:
+            await ctx.response.send_message(settings.Localize("invalid_image_type"), ephemeral=True)
+            return
+        # Send successful message.
+        await ctx.response.send_message(settings.Localize("guild_icon_added"), ephemeral=True)
+        # Create guild icons folder.
+        path = f'./guilds/{ctx.guild_id}/icons'
+        os.makedirs(path, exist_ok=True)
+        # Save icon file.
+        icon_file_name, icon_file_extension = os.path.splitext(icon.filename)
+        icon_path = os.path.join(path, f'{name}{icon_file_extension}')
+        await icon.save(icon_path)
+        # Save sleep icon file.
+        if sleep_icon:
+            sleep_icon_file_name, sleep_icon_file_extension = os.path.splitext(sleep_icon.filename)
+            sleep_icon_path = os.path.join(path, f'{name}_sleep{sleep_icon_file_extension}')
+            await sleep_icon.save(sleep_icon_path)
+            icon_data = { "icon": name, "wake":wake_hour, "sleep":sleep_hour }
+        # Add avatar icon to guild settings.
+        settings.SetInfo(ctx.guild_id, f"icons/{day}-{month}", icon_data)
+        
