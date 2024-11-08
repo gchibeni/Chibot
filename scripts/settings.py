@@ -8,6 +8,7 @@ from discord.ext import commands, tasks
 from datetime import datetime, timezone, timedelta
 import yt_dlp
 import pyotp
+import socket
 
 #region Variables
 
@@ -52,6 +53,22 @@ def isValidAuth(auth_secret:str) -> bool:
         print("invalid code 3")
         return False
     ...
+
+def IsValidDate(day, month, year):
+    try:
+        # Try getting date time.
+        datetime(day=day, month=month, year=year)
+        return True
+    except:
+        return False
+
+def IsOnline(host="8.8.8.8", port=53, timeout=3):
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+        return True
+    except socket.error:
+        return False
 
 async def ChangeGuildIcon(guild_id:int, icon_name:str, bot: commands.Bot):
     # Check if icon is already in use.

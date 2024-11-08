@@ -107,3 +107,8 @@ class bot_events(commands.Bot):
         @bot.event
         async def on_voice_state_update(member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
             print("Voice state updated")
+
+        @bot.event
+        async def on_disconnect():
+            print(f"\n{Fore.RED}─── DISCONECTED ───\n")
+            ...
