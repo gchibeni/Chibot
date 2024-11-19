@@ -8,6 +8,7 @@ import os
 import io
 import numpy as np
 from datetime import datetime
+from collections import deque
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(commands_common(bot))
@@ -55,74 +56,35 @@ class commands_common(commands.Cog):
     # ROULETTE ────────────────
     @app_commands.command(name="roulette", description = "-")
     async def roulette(self, ctx:discord.Interaction):
+        await settings.Disconnect(ctx.guild)
         await ctx.response.send_message("Roulette", ephemeral=True)
         
     # PULL/BRING ────────────────
     @app_commands.command(name="pull", description = "-")
     @app_commands.guild_only()
     async def pull(self, ctx:discord.Interaction):
+        await settings.Connect(ctx)
         await ctx.response.send_message("Pull", ephemeral=True)
 
-    # RECORD ────────────────
-    @app_commands.command(name="record", description = "-")
+    # REPLAY ────────────────
+    @app_commands.command(name="replay", description = "-")
     @app_commands.guild_only()
-    async def record(self, ctx:discord.Interaction):
-        if ctx.user.voice is None:
-            await ctx.response.send_message(settings.Localize("require_connected"))
-            return
-
-        def callback(user: discord.User, data: voice_recv.VoiceData):
-            if not recording:
-                return
-            if user not in user_buffers:
-                user_buffers[user] = io.BytesIO()
-            user_buffers[user].write(data.pcm)
-
-        user_buffers = {}
-        audio_buffer = io.BytesIO()
-        recording = True
-        
-        await ctx.response.send_message(settings.Localize("started_recording", "sheeesh"), ephemeral=True)
-        vc = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
-        vc.listen(voice_recv.BasicSink(callback))
-
-        # Wait for 5 seconds to collect audio.
-        await asyncio.sleep(5)
-        # Stop recording.
-        vc.stop_listening()
-        recording = False
-
-        filename = f"rec_{ctx.guild_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.wav"
-        all_audio = []
-        max_length = 0
-        for user, buffer in user_buffers.items():
-            buffer.seek(0)
-            pcm_data = np.frombuffer(buffer.read(), dtype=np.int16)
-            all_audio.append(pcm_data)
-            max_length = max(max_length, len(pcm_data))
-            buffer.close()
-        
-        # Mix all users audio by avaraging the PCM values.
-        if all_audio:
-            # Pad all audio arrays to the max length with zeros (silence).
-            padded_audio = [np.pad(audio, (0, max_length - len(audio)), mode='constant') for audio in all_audio]
-            # Mix all users' audio by averaging the padded PCM values
-            mixed_audio = np.mean(padded_audio, axis=0).astype(np.int16)
-            pitch = 1
-            new_bitrate = int (48000 * pitch)
-            with wave.open(f"./recs/{filename}", 'wb') as wav_file:
-                wav_file.setnchannels(2) # Set as stereo
-                wav_file.setsampwidth(2) # 2 bps (16-bit PCM)
-                wav_file.setframerate(new_bitrate) # Bitrate
-                wav_file.writeframes(mixed_audio.tobytes())
-            audio_buffer.close()
-            
-            print(f"Audio saved as {filename}")
-            discord_file = discord.File(f"./recs/{filename}")
+    async def replay(self, ctx:discord.Interaction, seconds:int = 15, pitch:int = 1):
+        # TODO: Limit how many times the guild can use the replay command per second (1/2s).        
+        await ctx.response.defer(thinking=True, ephemeral=True)
+        # Try to connect to voice channel.
+        connection = await settings.Connect(ctx)
+        if not connection:
+            # Send error message.
             await ctx.delete_original_response()
-            await ctx.channel.send("Recording complete. Audio saved on Desktop.", file=discord_file)
-            
-            os.remove(f"./recs/{filename}")
-        else:
-            await ctx.response.edit_message("Could not finish recording.")
+            await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)
+            return
+        
+        # If just joined, send message that he started recording.
+        if connection.message != "already_connected":
+            await ctx.delete_original_response()
+            await ctx.followup.send(settings.Localize("started_recording"), ephemeral=True)
+            return
+        # Save replay and 
+        await settings.SaveReplay(ctx, seconds, pitch)
         

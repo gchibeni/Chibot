@@ -17,8 +17,8 @@ class commands_admin(commands.Cog):
 
     # SAY ────────────────
     @app_commands.command(name="say", description = "Force the bot to send the specified message.")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
-    @app_commands.default_permissions(administrator=True)
     @app_commands.describe(message="Message to be transmitted.", attachment1="First attached files or images.", attachment2="Second attached files or images.", attachment3="Third attached files or images.")
     async def say(self, ctx:discord.Interaction, message:str = "", attachment1: discord.Attachment = None, attachment2: discord.Attachment = None, attachment3: discord.Attachment = None):
         await ctx.response.defer(thinking=True, ephemeral=True)
@@ -43,29 +43,24 @@ class commands_admin(commands.Cog):
 
     # PURGE ────────────────
     @app_commands.command(name="purge", description = "Delete a specified number of messages in order in a channel.")
+    @app_commands.default_permissions(manage_guild=True, manage_messages=True)
     @app_commands.guild_only()
     async def purge(self, ctx: discord.Interaction, quantity:int, force:bool = False):
         await ctx.response.send_message("Purge", ephemeral=True)
 
     # ALLOW PULL ────────────────
     @app_commands.command(name="allowpull", description = "-")
+    @app_commands.default_permissions(administrator=True)
     @app_commands.guild_only()
     @app_commands.describe(allow="Toggle pulling.")
     async def allow_pull(self, ctx: discord.Interaction, allow:bool = True):
         await ctx.response.send_message("Allow Pull", ephemeral=True)
 
-    # CHECK ICON ────────────────
-    @app_commands.command(name="checkicon", description = "-")
-    @app_commands.guild_only()
-    @app_commands.default_permissions(administrator=True)
-    async def check_icon(self, ctx: discord.Interaction):
-        await ctx.response.send_message("Checking icons...", ephemeral=True)
-        await settings.RotateGuildsIcons(client)
-
-    # CHECK ICON ────────────────
+    # TODO: Change this to /theme add
+    # ADD ICON ────────────────
     @app_commands.command(name="addicon", description = "-")
-    @app_commands.guild_only()
     @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     async def add_icon(self, ctx: discord.Interaction, day:int, month:int, name:str, icon:discord.Attachment, sleep_icon:discord.Attachment = None, wake_hour:int = None, sleep_hour:int = None):
         # Initialize variables.
         icon_data = { "icon": name }

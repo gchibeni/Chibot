@@ -25,13 +25,6 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-*.secret
-audios/*.mp3
-guilds.json
-settings.json
-guilds/
-test.py
-*.ai
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -157,3 +150,16 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# CHIBOT FILES --------
+
+# Secrets
+*.secret
+guilds.json
+settings.json
+*.ai
+
+# Folders
+guilds/
+recs/
+audios/

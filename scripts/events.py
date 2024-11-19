@@ -59,12 +59,12 @@ class bot_events(commands.Bot):
                 directed = guild.name
                 # Check if called sync command on guild.
                 if is_owner and content.lower() == "!sync here":
-                    print ("> SYNCING COMMANDS...")
+                    print (f"\n\n> SYNCING COMMANDS IN GUILD... ({guild.name})\n\n")
                     await message.delete()
                     await bot.tree.sync(guild=discord.Object(id=message.guild.id))
             # Check if called sync command anywhere.
             if is_owner and content.lower() == "!sync all":
-                print ("> SYNCING COMMANDS...")
+                print ("\n\n> SYNCING COMMANDS EVERYWHERE...\n\n")
                 await message.delete()
                 await bot.tree.sync()
                 
@@ -106,7 +106,13 @@ class bot_events(commands.Bot):
 
         @bot.event
         async def on_voice_state_update(member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
-            print("Voice state updated")
+
+            changed_channel = before.channel is not None and after.channel is not None and before.channel != after.channel
+            if member.id == bot.user.id:
+                if changed_channel:
+                    await settings.Disconnect(before.channel.guild)
+                    print("Bot - Changed channel.")
+                
 
         @bot.event
         async def on_disconnect():
