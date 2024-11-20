@@ -1,4 +1,4 @@
-from scripts import settings
+from scripts import settings, voice
 import discord
 from discord.ext import commands, tasks, voice_recv
 from discord import app_commands
@@ -56,14 +56,14 @@ class commands_common(commands.Cog):
     # ROULETTE ────────────────
     @app_commands.command(name="roulette", description = "-")
     async def roulette(self, ctx:discord.Interaction):
-        await settings.Disconnect(ctx.guild)
+        await voice.Disconnect(ctx.guild)
         await ctx.response.send_message("Roulette", ephemeral=True)
         
     # PULL/BRING ────────────────
     @app_commands.command(name="pull", description = "-")
     @app_commands.guild_only()
     async def pull(self, ctx:discord.Interaction):
-        await settings.Connect(ctx)
+        await voice.Connect(ctx)
         await ctx.response.send_message("Pull", ephemeral=True)
 
     # REPLAY ────────────────
@@ -73,18 +73,22 @@ class commands_common(commands.Cog):
         # TODO: Limit how many times the guild can use the replay command per second (1/2s).        
         await ctx.response.defer(thinking=True, ephemeral=True)
         # Try to connect to voice channel.
-        connection = await settings.Connect(ctx)
+        connection = await voice.Connect(ctx)
         if not connection:
             # Send error message.
             await ctx.delete_original_response()
             await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)
             return
-        
         # If just joined, send message that he started recording.
         if connection.message != "already_connected":
             await ctx.delete_original_response()
             await ctx.followup.send(settings.Localize("started_recording"), ephemeral=True)
             return
         # Save replay and 
-        await settings.SaveReplay(ctx, seconds, pitch)
+        file = await voice.SaveReplay(ctx, seconds, pitch)
+        await ctx.delete_original_response()
+        if file is not None:
+            await ctx.channel.send(settings.Localize("recording_complete"), file=file)
+            return
+        await ctx.followup.send(settings.Localize("recording_failed"), ephemeral=True)
         

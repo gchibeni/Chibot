@@ -1,4 +1,4 @@
-from scripts import settings
+from scripts import settings, voice
 import os
 import discord
 from discord.ext import commands, tasks
@@ -110,7 +110,7 @@ class bot_events(commands.Bot):
             changed_channel = before.channel is not None and after.channel is not None and before.channel != after.channel
             if member.id == bot.user.id:
                 if changed_channel:
-                    await settings.Disconnect(before.channel.guild)
+                    await voice.Disconnect(before.channel.guild)
                     print("Bot - Changed channel.")
                 
 
