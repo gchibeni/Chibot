@@ -23,17 +23,6 @@ from collections import deque
 maintenance = False
 lang = "en"
 
-
-# Configure youtube_dl to get audio from URL
-ytdl_settings = {
-    'format': 'bestaudio/best',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }]
-}
-
 #endregion
 
 #region Utils
@@ -273,6 +262,8 @@ def ReplaceArguments(template:str, *args) -> str:
     return template
 
 #endregion
+
+#region Classes
 
 class ConditionalMessage:
     def __init__(self, value: bool, message: str = ""):

@@ -19,6 +19,31 @@ from datetime import datetime, timezone, timedelta
 
 from collections import deque
 
+#region Settings
+
+ffmpeg_settings = {
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "options": "-vn",  # No video
+}
+
+# Configure youtube_dl to get audio from URL
+ytdl_settings = {
+    "format": "bestaudio/best",  # Get the best available audio format
+    "quiet": True,  # Suppress output to the console
+    "no_warnings": True,  # Suppress warnings
+    "noplaylist": True,  # Ignore playlists
+    "default_search": "ytsearch",  # Allow direct search queries
+    "postprocessors": [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": "mp3",  # Convert audio to MP3
+        "preferredquality": "192",  # Audio quality (192kbps)
+    }],
+}
+
+ytdl = yt_dlp.YoutubeDL(ytdl_settings)
+
+#endregion
+
 #region Recording
 
 guild_voices = {}
@@ -31,7 +56,7 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     SAMPLE_RATE = 48000 # Standard audio sample rate for PCM.
     CHANNELS = 2 # Quantity of channels (Stereo or Mono).
     # Check if already connected to any guild's voice channel.
-    voice_client:voice_recv.VoiceRecvClient = discord.utils.get(ctx.client.voice_clients, guild=ctx.guild)
+    voice_client:voice_recv.VoiceRecvClient = ctx.guild.voice_client
     connected = voice_client and voice_client.is_connected()
     same_channel = False if not voice_client else voice_client.channel.id == ctx.user.voice.channel.id
     # Check if bot is not connected to any voice channel.
@@ -130,3 +155,38 @@ async def SaveReplay(ctx:discord.Interaction, seconds:int = 5, pitch:int = 1) ->
             file = discord.File(audio_buffer, filename)
             return file
     return None
+
+async def PlayAudio(ctx:discord.Interaction, url:str):
+    global ytdl
+    global ffmpeg_settings
+    # Extract audio information and play
+    voice_client:voice_recv.VoiceRecvClient = ctx.guild.voice_client
+    try:
+        info = ytdl.extract_info(url, download=False)
+        info = get_audio_info(info)
+        media = discord.FFmpegPCMAudio(info["url"], **ffmpeg_settings)
+        voice_client.play(media, after=OnFinishPlaying)
+        voice_client.source = discord.PCMVolumeTransformer(voice_client.source, 1)
+        await ctx.delete_original_response()
+        await ctx.followup.send(f"Playing: {info["title"]}", ephemeral=True)
+    except Exception as e:
+        await ctx.delete_original_response()
+        await ctx.followup.send(f"Error: {str(e)}", ephemeral=True)
+
+def OnFinishPlaying(error):
+    # Play next media in queue.
+    print("Audio finished playing")
+    print(error)
+    ...
+
+def get_audio_info(info):
+    # Find an audio-only format with a valid URL
+    if "entries" in info:  # Handle search results
+        info = info["entries"][0]
+    return info
+    for fmt in info.get("formats", []):
+        if fmt.get("acodec") != "none" and fmt.get("vcodec") == "none":
+            return fmt.get("url")
+    raise Exception("No valid audio format found.")
+
+#endregion

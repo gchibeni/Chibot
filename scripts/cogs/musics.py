@@ -1,4 +1,4 @@
-from scripts import settings
+from scripts import settings, voice
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -13,8 +13,16 @@ class commands_music(commands.Cog):
     # PLAY ────────────────
     @app_commands.command(name="play", description = "-")
     @app_commands.guild_only()
-    async def play(self, ctx: discord.Interaction):
-        await ctx.response.send_message("Play", ephemeral=True)
+    async def play(self, ctx: discord.Interaction, search:str = ""):
+        await ctx.response.defer(thinking=True, ephemeral=True)
+        # Try to connect to voice channel.
+        connection = await voice.Connect(ctx)
+        if not connection:
+            # Send error message.
+            await ctx.delete_original_response()
+            await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)
+            return
+        await voice.PlayAudio(ctx, search)
 
     # SKIP ────────────────
     @app_commands.command(name="skip", description = "-")
