@@ -12,6 +12,7 @@ import wave
 import os
 import io
 import numpy
+import time
 
 from discord import app_commands
 from discord.ext import commands, tasks, voice_recv
@@ -47,11 +48,13 @@ ytdl = yt_dlp.YoutubeDL(ytdl_settings)
 #region Recording
 
 guild_voices = {}
+last_timestamp = {}
 
 async def Connect(ctx:discord.Interaction, force:bool = False):
     """Connects to the user's current channel and start listening ports."""
     # Initialize variables.
     global guild_voices
+    global last_timestamp
     BUFFER_SECONDS = 30 # Limit buffer to specified seconds.
     SAMPLE_RATE = 48000 # Standard audio sample rate for PCM.
     CHANNELS = 2 # Quantity of channels (Stereo or Mono).
@@ -75,18 +78,56 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     # Stores the pcm audio per guild and user.
     guild_voices = {}
     guild_voices[ctx.guild_id] = {}
+        
     # Register each user's voice PCM.
     def callback(user: discord.User, data: voice_recv.VoiceData):
-        # TODO: Also include the datetime/time mark of the last time the user spoke,
-        # then add silence for every interval the user did not speak.
         try:
             # Initialize a circular buffer (deque) for each user.
+            current_time = time.time()
+            if ctx.guild_id not in last_timestamp:
+                last_timestamp[ctx.guild_id] = time.time()
             if user not in guild_voices[ctx.guild_id]:
                 guild_voices[ctx.guild_id][user] = deque(maxlen=SAMPLE_RATE * BUFFER_SECONDS * CHANNELS * 2)
+                # Start user timestamp.
+                start_silence = current_time - last_timestamp[ctx.guild_id]
+                if start_silence >= 30:
+                    last_timestamp[user] = current_time - 30
+                else:
+                    last_timestamp[user] = current_time - start_silence
+            
+            # Calculate the duration since the last callback for this user.
+            elapsed_time = current_time - last_timestamp[user]
+            last_timestamp[user] = current_time
+            
+            # Calculate the duration of the received PCM frame.
+            pcm_frame_duration = len(data.pcm) / (SAMPLE_RATE * CHANNELS * 2)
+            # Calculate the excess time beyond the current PCM frame.
+            gap_duration = elapsed_time - pcm_frame_duration
+            threshold = 1000 / SAMPLE_RATE
+            # threshold = 0.015
+
+            # Append silence only if the excess time exceeds the PCM frame duration.
+            if gap_duration > threshold:
+                # Calculate the number of silence frames needed.
+                silence_frames = int(gap_duration * SAMPLE_RATE * CHANNELS * 2)
+                # Ensure silence frames are a multiple of the sample size.
+                silence_frames -= silence_frames % (CHANNELS * 2)
+                # Append silence frames incrementally.
+                silence_chunk_size = SAMPLE_RATE * CHANNELS * 2  # Silence chunk in frames (1 second worth of data)
+                silence_chunk_size -= silence_chunk_size % (CHANNELS * 2)
+                silence = b'\x00' * silence_chunk_size  # Generate silence (PCM zeros)
+                while silence_frames > 0:
+                    if silence_frames >= silence_chunk_size:
+                        guild_voices[ctx.guild_id][user].extend(silence)
+                        silence_frames -= silence_chunk_size
+                    else:
+                        # Append remaining silence if less than a full chunk.
+                        guild_voices[ctx.guild_id][user].extend(b'\x00' * silence_frames)
+                        silence_frames = 0
             # Append new PCM data to the user's buffer.
             guild_voices[ctx.guild_id][user].extend(data.pcm)
-        except:
-            print("VoiceRecv callback failed")
+        except Exception as ex:
+            print("VoiceRecv callback failed\n" + ex)
     # Connect to voice channel and start listeners.
     voice_client = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
     voice_client.listen(voice_recv.BasicSink(callback))
