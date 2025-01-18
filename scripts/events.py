@@ -2,7 +2,6 @@ from scripts import settings, voice
 import os
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
 from colorama import Fore, init
 from datetime import datetime
 
@@ -27,7 +26,7 @@ class bot_events(commands.Bot):
             cogs = []
             for filename in os.listdir("./scripts/cogs"):
                 if (filename.endswith('.py')):
-                    await bot.load_extension(f'scripts.cogs.{filename[:-3]}')
+                    bot.load_extension(f'scripts.cogs.{filename[:-3]}')
                     cogs.append(filename[:-3])
             print(f"\n{Fore.GREEN}─── STATUS ───\n> Cogs started: \"{", ".join(cogs)}\"\n> Connected as: \"{bot.user}\"\n──────────────{Fore.RESET}\n")
             check_updates.start()
@@ -61,12 +60,12 @@ class bot_events(commands.Bot):
                 if is_owner and content.lower() == "!sync here":
                     print (f"\n\n> SYNCING COMMANDS IN GUILD... ({guild.name})\n\n")
                     await message.delete()
-                    await bot.tree.sync(guild=discord.Object(id=message.guild.id))
+                    await bot.sync_commands(guild_ids=[message.guild.id], force=True)
             # Check if called sync command anywhere.
             if is_owner and content.lower() == "!sync all":
                 print ("\n\n> SYNCING COMMANDS EVERYWHERE...\n\n")
                 await message.delete()
-                await bot.tree.sync()
+                await bot.sync_commands(force=True)
                 
 
             # Check triggers.
@@ -86,7 +85,7 @@ class bot_events(commands.Bot):
             return
         
         @bot.event
-        async def on_app_command_completion(ctx: discord.Interaction, command: app_commands.Command):
+        async def on_app_command_completion(ctx: discord.Interaction, command):
             try:
                 # Get variables.
                 author = ctx.user

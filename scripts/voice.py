@@ -1,23 +1,12 @@
 from scripts import settings
-import random
-import os
-import json
-import math
 import discord
 import yt_dlp
-import pyotp
-import socket
-import asyncio
 import wave
 import os
 import io
 import numpy
 import time
-
-from discord import app_commands
-from discord.ext import commands, tasks, voice_recv
-from datetime import datetime, timezone, timedelta
-
+from datetime import datetime
 from collections import deque
 
 #region Settings
@@ -50,7 +39,7 @@ ytdl = yt_dlp.YoutubeDL(ytdl_settings)
 guild_voices = {}
 last_timestamp = {}
 
-async def Connect(ctx:discord.Interaction, force:bool = False):
+async def Connect(ctx:discord.ApplicationContext, force:bool = False):
     """Connects to the user's current channel and start listening ports."""
     # Initialize variables.
     global guild_voices
@@ -59,7 +48,7 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     SAMPLE_RATE = 48000 # Standard audio sample rate for PCM.
     CHANNELS = 2 # Quantity of channels (Stereo or Mono).
     # Check if already connected to any guild's voice channel.
-    voice_client:voice_recv.VoiceRecvClient = ctx.guild.voice_client
+    voice_client = ctx.guild.voice_client
     connected = voice_client and voice_client.is_connected()
     same_channel = False if not voice_client else voice_client.channel.id == ctx.user.voice.channel.id
     # Check if bot is not connected to any voice channel.
@@ -80,7 +69,7 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     guild_voices[ctx.guild_id] = {}
         
     # Register each user's voice PCM.
-    def callback(user: discord.User, data: voice_recv.VoiceData):
+    def callback(user: discord.User, data):
         try:
             # Initialize a circular buffer (deque) for each user.
             current_time = time.time()
@@ -129,8 +118,9 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
         except Exception as ex:
             print("VoiceRecv callback failed\n" + ex)
     # Connect to voice channel and start listeners.
-    voice_client = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
-    voice_client.listen(voice_recv.BasicSink(callback))
+    #voice_client = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
+    #voice_client.listen(voice_recv.BasicSink(callback))
+    #voice_client.listen(discord.sinks.MP3Sink())
     # Return true if connected successfully.
     return settings.ConditionalMessage(True, "connected")
 
@@ -152,7 +142,7 @@ async def Disconnect(guild:discord.Guild) -> bool:
     # Return true if disconnected successfully.
     return True
 
-async def SaveReplay(ctx:discord.Interaction, seconds:int = 5, pitch:int = 1) -> discord.File:
+async def SaveReplay(ctx:discord.ApplicationContext, seconds:int = 5, pitch:int = 1) -> discord.File:
     # Initialize variables.
     global guild_voices
     SAMPLE_RATE = 48000 # Standard audio sample rate for PCM.
@@ -197,7 +187,7 @@ async def SaveReplay(ctx:discord.Interaction, seconds:int = 5, pitch:int = 1) ->
             return file
     return None
 
-async def PlayAudio(ctx:discord.Interaction, url:str):
+async def PlayAudio(ctx:discord.ApplicationContext, url:str):
     global ytdl
     global ffmpeg_settings
     # Extract audio information and play
@@ -208,10 +198,8 @@ async def PlayAudio(ctx:discord.Interaction, url:str):
         media = discord.FFmpegPCMAudio(info["url"], **ffmpeg_settings)
         voice_client.play(media, after=OnFinishPlaying)
         voice_client.source = discord.PCMVolumeTransformer(voice_client.source, 1)
-        await ctx.delete_original_response()
         await ctx.followup.send(f"Playing: {info["title"]}", ephemeral=True)
     except Exception as e:
-        await ctx.delete_original_response()
         await ctx.followup.send(f"Error: {str(e)}", ephemeral=True)
 
 def OnFinishPlaying(error):

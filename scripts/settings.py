@@ -11,11 +11,8 @@ import wave
 import os
 import io
 import numpy
-
-from discord import app_commands
-from discord.ext import commands, tasks, voice_recv
+from discord.ext import commands
 from datetime import datetime, timezone, timedelta
-
 from collections import deque
 
 #region Variables
