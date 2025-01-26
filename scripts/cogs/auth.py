@@ -45,7 +45,10 @@ class commands_authy(commands.Cog):
         auth_code = totp.now()
         time_remaining = totp.interval - (time.time() % totp.interval)
         await ctx.followup.send(settings.Localize("auth_found", auth_code), ephemeral=True, delete_after=time_remaining)
+        ...
 
+    # AUTH GROUP ────────────────
+    # Create slash command group.
     auth = SlashCommandGroup("auth", "-", default_member_permissions=discord.Permissions(administrator=True))
 
     # ADD ────────────────
@@ -61,18 +64,18 @@ class commands_authy(commands.Cog):
             await ctx.send_modal(auth_modal)
             return
         if len(name) < 3:
-            await ctx.send(settings.Localize("auth_small_name"), ephemeral=True, delete_after=5)
+            await ctx.send_response(settings.Localize("auth_small_name"), ephemeral=True, delete_after=5)
             return
         if len(name) > 35:
-            await ctx.send(settings.Localize("auth_big_name"), ephemeral=True, delete_after=5)
+            await ctx.send_response(settings.Localize("auth_big_name"), ephemeral=True, delete_after=5)
             return
         # Check if auth code is valid.
         if not settings.isValidAuth(code):
-            await ctx.send(settings.Localize("auth_invalid_code"), ephemeral=True, delete_after=5)
+            await ctx.send_response(settings.Localize("auth_invalid_code"), ephemeral=True, delete_after=5)
             return
         # Add auth to guild list.
         settings.SetInfo(ctx.guild_id, f"authenticators/{name}", code)
-        await ctx.send(settings.Localize("auth_added", name), ephemeral=True, delete_after=5)
+        await ctx.send_response(settings.Localize("auth_added", name), ephemeral=True, delete_after=5)
         ...
 
     # DEL ────────────────
