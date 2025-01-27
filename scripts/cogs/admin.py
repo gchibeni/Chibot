@@ -1,27 +1,27 @@
 from scripts import settings, voice
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, default_permissions, guild_only, option
+from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 from datetime import time
 import os
 
-def setup(bot: commands.Bot):
-    bot.add_cog(commands_admin(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(commands_admin(bot))
 
 class commands_admin(commands.Cog):
     def __init__(self, bot: commands.Cog):
         self.bot = bot
 
     # SAY ────────────────
-    @slash_command(name="say", description = "Force the bot to send the specified message.")
+    @command(name="say", description = "Force the bot to send the specified message.")
     @default_permissions(manage_guild=True)
     @guild_only()
-    @option("message", description="Message to be transmitted.", required=False, default="")
-    @option("attachment1", description="First attached files or images.", required=False, default=None)
-    @option("attachment2", description="Second attached files or images.", required=False, default=None)
-    @option("attachment3", description="Third attached files or images.", required=False, default=None)
-    @option("attachment4", description="Forth attached files or images.", required=False, default=None)
-    async def say(self, ctx:discord.ApplicationContext, message:str, attachment1: discord.Attachment = None, attachment2: discord.Attachment = None, attachment3: discord.Attachment = None, attachment4: discord.Attachment = None):
+    @describe(message="Message to be transmitted.")
+    @describe(attachment1="First attached files or images.")
+    @describe(attachment2="Second attached files or images.")
+    @describe(attachment3="Third attached files or images.")
+    @describe(attachment4="Forth attached files or images.")
+    async def say(self, ctx:discord.Interaction, message:str, attachment1: discord.Attachment = None, attachment2: discord.Attachment = None, attachment3: discord.Attachment = None, attachment4: discord.Attachment = None):
         await ctx.defer(ephemeral=True)
         # Prepare attatchment files.
         files = []
@@ -42,12 +42,12 @@ class commands_admin(commands.Cog):
         await ctx.followup.send(settings.Localize("message_sent"), ephemeral=True, delete_after=1)
         
     # PURGE ────────────────
-    @slash_command(name="purge", description = "Delete a specified number of messages in order in a channel.")
+    @command(name="purge", description = "Delete a specified number of messages in order in a channel.")
     @default_permissions(manage_guild=True, manage_messages=True)
     @guild_only()
-    @option("quantity", description="Quantity of messages to be purged", required=True, default=1, min_value=1, max_value=1000)
-    @option("force", description="Force delete past marked messages", required=False, default=False)
-    async def purge(self, ctx: discord.ApplicationContext, quantity:int, force:bool = False):
+    @describe(quantity="Quantity of messages to be purged")
+    @describe(force="Force delete past marked messages")
+    async def purge(self, ctx: discord.Interaction, quantity:Range[int,1,1000] = 1, force:bool = False):
         await ctx.defer(ephemeral=True)
         # Common variables.
         channel : discord.TextChannel = ctx.channel
@@ -69,18 +69,18 @@ class commands_admin(commands.Cog):
         await ctx.followup.send(settings.Localize("purged_messages", quantity))
 
     # ALLOW PULL ────────────────
-    @slash_command(name="allowpull", description = "-")
+    @command(name="allowpull", description = "-")
     @default_permissions(administrator=True)
     @guild_only()
-    async def allow_pull(self, ctx: discord.ApplicationContext):
+    async def allow_pull(self, ctx: discord.Interaction):
         await ctx.response.send_message("Allow Pull", ephemeral=True)
 
     # TODO: Change this to /theme add
     # ADD ICON ────────────────
-    @slash_command(name="addicon", description = "-")
+    @command(name="addicon", description = "-")
     @default_permissions(administrator=True)
     @guild_only()
-    async def add_icon(self, ctx: discord.ApplicationContext, day:int, month:int, name:str, icon:discord.Attachment, sleep_icon:discord.Attachment = None, wake_hour:int = None, sleep_hour:int = None):
+    async def add_icon(self, ctx: discord.Interaction, day:int, month:int, name:str, icon:discord.Attachment, sleep_icon:discord.Attachment = None, wake_hour:int = None, sleep_hour:int = None):
         # Initialize variables.
         icon_data = { "icon": name }
         allowedTypes = {"image/png", "image/jpeg", "image/jpg", "image/gif"}

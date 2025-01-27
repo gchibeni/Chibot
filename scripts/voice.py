@@ -1,19 +1,26 @@
 from scripts import settings
-import discord
 import yt_dlp
 import wave
 import os
 import io
 import numpy
 import time
+import discord
 from datetime import datetime
 from collections import deque
+from discord.ext import voice_recv
 
 #region Settings
 
+BUFFER_DURATION = 30  # Duration of the buffer in seconds
+SAMPLE_RATE = 48000  # Discord uses 48kHz
+CHANNELS = 2  # Stereo audio
+BYTES_PER_SAMPLE = 2  # 16-bit PCM (2 bytes per sample)
+BUFFER_SIZE = BUFFER_DURATION * SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE
+
 ffmpeg_settings = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn",  # No video
+    "options": "-vn -bufsize 8192",  # No video, set buffer size
 }
 
 # Configure youtube_dl to get audio from URL
@@ -31,22 +38,17 @@ ytdl_settings = {
 }
 
 ytdl = yt_dlp.YoutubeDL(ytdl_settings)
-
-#endregion
-
-#region Recording
-
 guild_voices = {}
 last_timestamp = {}
 
-async def Connect(ctx:discord.ApplicationContext, force:bool = False):
+#endregion
+
+#region Connection
+
+async def Connect(ctx:discord.Interaction, force:bool = False):
     """Connects to the user's current channel and start listening ports."""
     # Initialize variables.
-    global guild_voices
-    global last_timestamp
-    BUFFER_SECONDS = 30 # Limit buffer to specified seconds.
-    SAMPLE_RATE = 48000 # Standard audio sample rate for PCM.
-    CHANNELS = 2 # Quantity of channels (Stereo or Mono).
+    global guild_voices, last_timestamp
     # Check if already connected to any guild's voice channel.
     voice_client = ctx.guild.voice_client
     connected = voice_client and voice_client.is_connected()
@@ -67,16 +69,40 @@ async def Connect(ctx:discord.ApplicationContext, force:bool = False):
     # Stores the pcm audio per guild and user.
     guild_voices = {}
     guild_voices[ctx.guild_id] = {}
-        
+    # Connect to voice channel and start listeners.
+    voice_client:discord.VoiceClient = await ctx.user.voice.channel.connect()
+    # Return true if connected successfully.
+    return settings.ConditionalMessage(True, "connected")
+
+async def Disconnect(guild:discord.Guild) -> bool:
+    """Disconnects from a guild channel and stops listening ports."""
+    # Initialize variables.
+    global guild_voices
+    # Check if already connected to any guild's voice channel.
+    voice_client:discord.VoiceClient = guild.voice_client
+    if not voice_client or not voice_client.is_connected():
+        # Return false if already not connected.
+        return False
+    # Disconnect from voice channel.
+    await voice_client.disconnect()
+    # Clear guild recorded voice bytes to preserve memory.
+    guild_voices[guild.id] = {}
+    # Return true if disconnected successfully.
+    return True
+
+#endregion
+
+#region Replay
+
     # Register each user's voice PCM.
-    def callback(user: discord.User, data):
+    def recorder_callback(user: discord.User, data):
         try:
             # Initialize a circular buffer (deque) for each user.
             current_time = time.time()
             if ctx.guild_id not in last_timestamp:
                 last_timestamp[ctx.guild_id] = time.time()
             if user not in guild_voices[ctx.guild_id]:
-                guild_voices[ctx.guild_id][user] = deque(maxlen=SAMPLE_RATE * BUFFER_SECONDS * CHANNELS * 2)
+                guild_voices[ctx.guild_id][user] = deque(maxlen=BUFFER_SIZE)
                 # Start user timestamp.
                 start_silence = current_time - last_timestamp[ctx.guild_id]
                 if start_silence >= 30:
@@ -89,7 +115,7 @@ async def Connect(ctx:discord.ApplicationContext, force:bool = False):
             last_timestamp[user] = current_time
             
             # Calculate the duration of the received PCM frame.
-            pcm_frame_duration = len(data.pcm) / (SAMPLE_RATE * CHANNELS * 2)
+            pcm_frame_duration = len(data.pcm) / (SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE)
             # Calculate the excess time beyond the current PCM frame.
             gap_duration = elapsed_time - pcm_frame_duration
             threshold = 1000 / SAMPLE_RATE
@@ -98,12 +124,12 @@ async def Connect(ctx:discord.ApplicationContext, force:bool = False):
             # Append silence only if the excess time exceeds the PCM frame duration.
             if gap_duration > threshold:
                 # Calculate the number of silence frames needed.
-                silence_frames = int(gap_duration * SAMPLE_RATE * CHANNELS * 2)
+                silence_frames = int(gap_duration * SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE)
                 # Ensure silence frames are a multiple of the sample size.
-                silence_frames -= silence_frames % (CHANNELS * 2)
+                silence_frames -= silence_frames % (CHANNELS * BYTES_PER_SAMPLE)
                 # Append silence frames incrementally.
-                silence_chunk_size = SAMPLE_RATE * CHANNELS * 2  # Silence chunk in frames (1 second worth of data)
-                silence_chunk_size -= silence_chunk_size % (CHANNELS * 2)
+                silence_chunk_size = SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE  # Silence chunk in frames (1 second worth of data)
+                silence_chunk_size -= silence_chunk_size % (CHANNELS * BYTES_PER_SAMPLE)
                 silence = b'\x00' * silence_chunk_size  # Generate silence (PCM zeros)
                 while silence_frames > 0:
                     if silence_frames >= silence_chunk_size:
@@ -117,36 +143,10 @@ async def Connect(ctx:discord.ApplicationContext, force:bool = False):
             guild_voices[ctx.guild_id][user].extend(data.pcm)
         except Exception as ex:
             print("VoiceRecv callback failed\n" + ex)
-    # Connect to voice channel and start listeners.
-    #voice_client = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
-    #voice_client.listen(voice_recv.BasicSink(callback))
-    #voice_client.listen(discord.sinks.MP3Sink())
-    # Return true if connected successfully.
-    return settings.ConditionalMessage(True, "connected")
 
-async def Disconnect(guild:discord.Guild) -> bool:
-    """Disconnects from a guild channel and stops listening ports."""
+async def SaveReplay(ctx:discord.Interaction, seconds:int = 5, pitch:int = 1) -> discord.File:
     # Initialize variables.
     global guild_voices
-    # Check if already connected to any guild's voice channel.
-    voice_client:voice_recv.VoiceRecvClient = guild.voice_client
-    if not voice_client or not voice_client.is_connected():
-        # Return false if already not connected.
-        return False
-    # Stop all listening ports.
-    voice_client.stop_listening()
-    # Disconnect from voice channel.
-    await voice_client.disconnect()
-    # Clear guild recorded voice bytes to preserve memory.
-    guild_voices[guild.id] = {}
-    # Return true if disconnected successfully.
-    return True
-
-async def SaveReplay(ctx:discord.ApplicationContext, seconds:int = 5, pitch:int = 1) -> discord.File:
-    # Initialize variables.
-    global guild_voices
-    SAMPLE_RATE = 48000 # Standard audio sample rate for PCM.
-    CHANNELS = 2 # Quantity of channels (Stereo or Mono).
     PITCH = max(0.5, min(pitch, 1.5)) # Change to specified pitch.
     PITCH = (SAMPLE_RATE * PITCH) - SAMPLE_RATE # Get pitch bitrate.
 
@@ -187,15 +187,19 @@ async def SaveReplay(ctx:discord.ApplicationContext, seconds:int = 5, pitch:int 
             return file
     return None
 
-async def PlayAudio(ctx:discord.ApplicationContext, url:str):
-    global ytdl
-    global ffmpeg_settings
+#endregion
+
+#region Play
+
+async def PlayAudio(ctx:discord.Interaction, url:str):
+    global ytdl, ffmpeg_settings
     # Extract audio information and play
-    voice_client:voice_recv.VoiceRecvClient = ctx.guild.voice_client
+    voice_client:discord.VoiceClient = ctx.voice_client
     try:
         info = ytdl.extract_info(url, download=False)
         info = get_audio_info(info)
-        media = discord.FFmpegPCMAudio(info["url"], **ffmpeg_settings)
+        audio_url = info["url"]
+        media = discord.FFmpegPCMAudio(audio_url, **ffmpeg_settings)
         voice_client.play(media, after=OnFinishPlaying)
         voice_client.source = discord.PCMVolumeTransformer(voice_client.source, 1)
         await ctx.followup.send(f"Playing: {info["title"]}", ephemeral=True)
@@ -204,8 +208,7 @@ async def PlayAudio(ctx:discord.ApplicationContext, url:str):
 
 def OnFinishPlaying(error):
     # Play next media in queue.
-    print("Audio finished playing")
-    print(error)
+    print(f"\nAUDIO - finished playing.\nErrors: {error}\n")
     ...
 
 def get_audio_info(info):

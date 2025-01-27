@@ -1,9 +1,10 @@
-from scripts import settings
+from scripts import settings, voice
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
+from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 
-def setup(bot: commands.Bot):
-    bot.add_cog(commands_triggers(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(commands_triggers(bot))
 
 class commands_triggers(commands.Cog):
     def __init__(self, bot: commands.Cog):

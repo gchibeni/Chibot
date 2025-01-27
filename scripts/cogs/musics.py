@@ -1,19 +1,19 @@
 from scripts import settings, voice
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, default_permissions, guild_only
+from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 
-def setup(bot: commands.Bot):
-    bot.add_cog(commands_music(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(commands_music(bot))
 
 class commands_music(commands.Cog):
     def __init__(self, bot: commands.Cog):
         self.bot = bot
     
     # PLAY ────────────────
-    @slash_command(name="play", description = "-")
+    @command(name="play", description = "-")
     @guild_only()
-    async def play(self, ctx: discord.ApplicationContext, search:str = ""):
+    async def play(self, ctx: discord.Interaction, search:str = ""):
         await ctx.defer(ephemeral=True)
         # Try to connect to voice channel.
         connection = await voice.Connect(ctx)
@@ -24,30 +24,30 @@ class commands_music(commands.Cog):
         await voice.PlayAudio(ctx, search)
 
     # SKIP ────────────────
-    @slash_command(name="skip", description = "-")
+    @command(name="skip", description = "-")
     @guild_only()
-    async def skip(self, ctx: discord.ApplicationContext):
+    async def skip(self, ctx: discord.Interaction):
         await ctx.defer(ephemeral=True)
         await ctx.followup.send("Skip", ephemeral=True)
 
     # PAUSE ────────────────
-    @slash_command(name="pause", description = "-")
+    @command(name="pause", description = "-")
     @guild_only()
-    async def pause(self, ctx: discord.ApplicationContext):
+    async def pause(self, ctx: discord.Interaction):
         await ctx.defer(ephemeral=True)
         await ctx.followup.send("Pause", ephemeral=True)
 
     # STOP ────────────────
-    @slash_command(name="stop", description = "-")
+    @command(name="stop", description = "-")
     @guild_only()
-    async def stop(self, ctx: discord.ApplicationContext):
+    async def stop(self, ctx: discord.Interaction):
         await ctx.defer(ephemeral=True)
         await ctx.followup.send("Stop", ephemeral=True)
 
     # SET MUSIC CHANNEL ────────────────
-    @slash_command(name="musicmessage", description = "-")
+    @command(name="musicmessage", description = "-")
     @guild_only()
     @default_permissions(administrator=True)
-    async def music_message(self, ctx: discord.ApplicationContext):
+    async def music_message(self, ctx: discord.Interaction):
         await ctx.defer(ephemeral=True)
         await ctx.followup.send("Music Message", ephemeral=True)

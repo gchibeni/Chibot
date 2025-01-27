@@ -1,14 +1,15 @@
 from scripts import settings
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, default_permissions, guild_only, option, SlashCommandGroup
+from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 import pyotp
 import time
 
 #region Initialization
 
-def setup(bot: commands.Bot):
-    bot.add_cog(commands_authy(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(commands_authy(bot))
+    await bot.add_cog(commands_auth(bot))
 
 #endregion
 
@@ -19,11 +20,11 @@ class commands_authy(commands.Cog):
         self.bot = bot
     
     # AUTHY ────────────────
-    @slash_command(name="authy", description = settings.Localize("authy_description"))
+    @discord.app_commands.command(name="authy", description = settings.Localize("authy_description"))
     @guild_only()
-    @option("name",description=settings.Localize("auth_name_describe"), required=True, default=None)
-    async def authy(self, ctx: discord.ApplicationContext, name:str):
-        await ctx.defer(ephemeral=True)
+    @describe(name=settings.Localize("auth_name_describe"))
+    async def authy(self, ctx: discord.Interaction, name:Range[str,3,35]):
+        await ctx.response.defer(thinking=True, ephemeral=True)
         # Check parameters.
         if len(name) < 3:
             await ctx.followup.send(settings.Localize("auth_small_name"), ephemeral=True, delete_after=5)
@@ -47,17 +48,17 @@ class commands_authy(commands.Cog):
         await ctx.followup.send(settings.Localize("auth_found", auth_code), ephemeral=True, delete_after=time_remaining)
         ...
 
-    # AUTH GROUP ────────────────
-    # Create slash command group.
-    auth = SlashCommandGroup("auth", "-", default_member_permissions=discord.Permissions(administrator=True))
-
+class commands_auth(commands.GroupCog, group_name="auth"):
+    def __init__(self, bot: commands.Cog):
+        self.bot = bot
+    
     # ADD ────────────────
     # Show add module (max 25)
-    @auth.command(name="add", description = settings.Localize("auth_add_description"))
+    @command(name="add", description = settings.Localize("auth_add_description"))
     @guild_only()
-    @option("name",description=settings.Localize("auth_name_describe"))
-    @option("code",description=settings.Localize("auth_code_describe"))
-    async def auth_add(self, ctx: discord.ApplicationContext, name:str = None, code:str = None):
+    @describe(name=settings.Localize("auth_name_describe"))
+    @describe(code=settings.Localize("auth_code_describe"))
+    async def auth_add(self, ctx: discord.Interaction, name:str = None, code:str = None):
         # Check parameters.
         if id is None or code is None:
             auth_modal = AuthAddModal(title=settings.Localize("auth_add_title"))
@@ -80,11 +81,11 @@ class commands_authy(commands.Cog):
 
     # DEL ────────────────
     # Show selectable list (max 25)
-    @auth.command(name="remove", description = settings.Localize("auth_remove_description"))
+    @command(name="remove", description = settings.Localize("auth_remove_description"))
     @guild_only()
-    @option("name",description=settings.Localize("auth_name_describe"))
-    async def auth_remove(self, ctx: discord.ApplicationContext, name:str):
-        await ctx.defer(ephemeral=True)
+    @describe(name=settings.Localize("auth_name_describe"))
+    async def auth_remove(self, ctx: discord.Interaction, name:str):
+        await ctx.response.defer(thinking=True, ephemeral=True)
         # Check parameters.
         if len(name) < 3 or len(name) > 35:
             await ctx.followup.send(settings.Localize("auth_not_found"), ephemeral=True, delete_after=5)
@@ -102,10 +103,10 @@ class commands_authy(commands.Cog):
 
     # LIST ────────────────
     # Show list (max 25)
-    @auth.command(name="list", description = settings.Localize("auth_list_description"))
+    @command(name="list", description = settings.Localize("auth_list_description"))
     @guild_only()
-    async def auth_list(self, ctx: discord.ApplicationContext):
-        await ctx.defer(ephemeral=True)
+    async def auth_list(self, ctx: discord.Interaction):
+        await ctx.response.defer(thinking=True, ephemeral=True)
         # Check if any auth was found.
         auths = settings.GetInfo(ctx.guild_id, "authenticators")
         if not auths:
@@ -119,6 +120,7 @@ class commands_authy(commands.Cog):
         embeded = discord.Embed(description=list_str).set_footer(text=settings.Localize("auth_index_list_label"))
         await ctx.followup.send(embed=embeded, ephemeral=True)
         ...
+
 #endregion
 
 #region Modals
@@ -126,16 +128,16 @@ class commands_authy(commands.Cog):
 class AuthAddModal(discord.ui.Modal):    
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.add_item(discord.ui.InputText(
-            style=discord.InputTextStyle.short,
+        self.add_item(discord.ui.TextInput(
+            style=discord.TextStyle.short,
             label=settings.Localize("auth_name_label"),
             required=True,
             placeholder="----",
             min_length=3,
             max_length=35,
         ))
-        self.add_item(discord.ui.InputText(
-            style=discord.InputTextStyle.short,
+        self.add_item(discord.ui.TextInput(
+            style=discord.TextStyle.short,
             label=settings.Localize("auth_code_label"),
             required=True,
             placeholder="---- ---- ---- ---- ---- ---- ---- ----",

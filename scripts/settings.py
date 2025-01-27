@@ -147,6 +147,10 @@ def IsValidDate(day, month, year):
     except:
         return False
 
+async def Developing(ctx:discord.Interaction):
+    await ctx.response.defer(ephemeral=True)
+    await ctx.followup.send(Localize("still_developing"))
+
 #endregion
 
 #region Info

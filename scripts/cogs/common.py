@@ -1,8 +1,8 @@
-
 from scripts import settings, voice
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, default_permissions, guild_only, option, SlashCommandGroup
+from discord import app_commands
+from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 from discord.ui import Button, View
 
 import asyncio
@@ -14,32 +14,32 @@ import numpy as np
 from datetime import datetime
 from collections import deque
 
-def setup(bot: commands.Bot):
-    bot.add_cog(commands_common(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(commands_common(bot))
 
 class commands_common(commands.Cog):
     def __init__(self, bot: commands.Cog):
         self.bot = bot
 
     # STATUS ────────────────
-    @slash_command(name="status", description = "-")
-    async def status(self, ctx:discord.ApplicationContext):
-        await ctx.send(settings.Localize("bot_status", settings.maintenance, settings.lang), ephemeral=True, delete_after=2)
+    @app_commands.command(name="status", description = "-")
+    async def status(self, ctx:discord.Interaction):
+        await ctx.response.send_message(settings.Localize("bot_status", settings.maintenance, settings.lang), ephemeral=True, delete_after=2)
     
     # AVATAR ────────────────
-    @slash_command(name="avatar", description = "Fetch the avatar of any member")
-    @option("member", description="Target member", required=True)
-    async def avatar(self, ctx:discord.ApplicationContext, member:discord.Member):
-        await ctx.defer(ephemeral=True)
+    @command(name="avatar", description = "Fetch the avatar of any member")
+    @describe(member="Target member")
+    async def avatar(self, ctx:discord.Interaction, member:discord.Member):
+        await ctx.response.defer(thinking=True, ephemeral=True)
         embeded = discord.Embed(description=settings.Localize("fetched_avatar", member.mention)).set_image(url=member.display_avatar.url)
         await ctx.followup.send(embed=embeded, ephemeral=True)
     
     # FLIP ────────────────
-    @slash_command(name="flip", description = "-")
-    @option("hidden", description="-", required=False, default=False)
-    async def flip(self, ctx:discord.ApplicationContext, hidden:bool):
+    @command(name="flip", description = "-")
+    @describe(hidden="-")
+    async def flip(self, ctx:discord.Interaction, hidden:bool = False):
         # Common variables.
-        await ctx.defer(ephemeral=hidden)
+        await ctx.response.defer(thinking=True, ephemeral=hidden)
         # Generate view and first value.
         view = View()
         flipped = random.randint(0, 1)
@@ -54,8 +54,9 @@ class commands_common(commands.Cog):
         # Set callback functions.
         async def button_callback(interaction:discord.Interaction):
             flipped = random.randint(0, 1)
+            button.label = "-" if button.label == "" else ""
             button.emoji = flipped_emoji(flipped)
-            display.label = f'➜  {ctx.user.display_name} flipped {flipped_name(flipped)}!'
+            display.label = f'➜  {interaction.user.display_name} flipped {flipped_name(flipped)}!'
             await interaction.response.edit_message(view=view)
         # Set button callbacks.
         flip.callback = button.callback = display.callback = button_callback
@@ -67,11 +68,11 @@ class commands_common(commands.Cog):
         await ctx.followup.send(view=view, ephemeral=hidden)
 
     # ROLL ────────────────
-    @slash_command(name="roll", description = "-")
-    @option("number", description="-", required=False, default=20, min_value=2)
-    @option("hidden", description="-", required=False, default=False)
-    async def roll(self, ctx:discord.ApplicationContext, number:int, hidden:bool):
-        await ctx.defer(ephemeral=hidden)
+    @command(name="roll", description = "-")
+    @describe(number="-")
+    @describe(hidden="-")
+    async def roll(self, ctx:discord.Interaction, number:Range[int, 2] = 20, hidden:bool = False):
+        await ctx.response.defer(thinking=True, ephemeral=hidden)
         # Generate view and first value.
         view = View()
         rolled = random.randint(1, number)
@@ -95,11 +96,11 @@ class commands_common(commands.Cog):
         await ctx.followup.send(view=view, ephemeral=hidden)
 
     # ROULETTE ────────────────
-    @slash_command(name="roulette", description = "-")
+    @command(name="roulette", description = "-")
     @guild_only()
-    @option("hidden", description="-", required=False, default=False)
-    async def roulette(self, ctx:discord.ApplicationContext, hidden:bool):
-        await ctx.defer(ephemeral=hidden)
+    @describe(hidden="-")
+    async def roulette(self, ctx:discord.Interaction, hidden:bool = False):
+        await ctx.response.defer(thinking=True, ephemeral=hidden)
         # Generate view and dead value.
         view = View()
         dead_value = random.randint(0,5)
@@ -131,38 +132,40 @@ class commands_common(commands.Cog):
         await ctx.followup.send(view=view, ephemeral=hidden)
 
     # ANON ────────────────
-    @slash_command(name="anon", description = "-")
-    @option("message", description="Anonymouse message", required=True)
-    @option("member", description="Direct message target member", required=False, default = None)
-    async def anon(self, ctx:discord.ApplicationContext, message:str, member:discord.Member):
-        await ctx.defer(ephemeral=True)
+    @command(name="anon", description = "-")
+    @describe(message="Anonymouse message")
+    @describe(member="Direct message target member")
+    async def anon(self, ctx:discord.Interaction, message:str, member:discord.Member = None):
+        await ctx.response.defer(thinking=True, ephemeral=True)
         embeded = discord.Embed(description=message).set_footer(icon_url='https://i.gifer.com/L7sU.gif', text='➜ Sent anonymously')
         # Send message anonymously.
         if member is None:
-            await ctx.send(embed=embeded)
+            await ctx.response.send_message(embed=embeded)
         else:
             await member.send(embed=embeded)
         # Send confirmation.
         await ctx.followup.send(settings.Localize("anon_message_sent"), ephemeral=True, delete_after=2)
 
     # REMINDER ────────────────
-    @slash_command(name="reminder", description = "-")
-    async def remind_me(self, ctx:discord.ApplicationContext):
+    @command(name="reminder", description = "-")
+    async def remind_me(self, ctx:discord.Interaction):
         await ctx.send_response("Reminder", ephemeral=True)
     
     # PULL/BRING ────────────────
-    @slash_command(name="pull", description = "-")
+    @command(name="pull", description = "-")
     @guild_only()
-    async def pull(self, ctx:discord.ApplicationContext):
+    async def pull(self, ctx:discord.Interaction):
+        settings.Developing(ctx)
+        return
         await voice.Connect(ctx)
         await ctx.send_response("Pull", ephemeral=True)
 
     # REPLAY ────────────────
-    @slash_command(name="replay", description = "-")
+    @command(name="replay", description = "-")
     @guild_only()
-    async def replay(self, ctx:discord.ApplicationContext, seconds:int = 15, pitch:int = 1):
+    async def replay(self, ctx:discord.Interaction, seconds:int = 15, pitch:int = 1):
         # TODO: Limit how many times the guild can use the replay command per second (1/2s).        
-        await ctx.defer(ephemeral=True)
+        await ctx.response.defer(thinking=True, ephemeral=True)
         # Try to connect to voice channel.
         connection = await voice.Connect(ctx)
         if not connection:
