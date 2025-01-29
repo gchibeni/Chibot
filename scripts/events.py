@@ -91,7 +91,7 @@ class bot_events(commands.Bot):
                 guild = ctx.guild.name
                 channel = ctx.channel.name
                 # Print message log.
-                if command != "anon":
+                if command.name != "anon":
                     print(f'⎾ {guild} ||| {channel} ⏋ ⤵')
                     print(f'< {author.id} ||| {author.display_name}> <C>: Used {command.name} < < < <')
             except: return
@@ -119,7 +119,8 @@ class bot_events(commands.Bot):
             ...
         
         async def sync(guild:discord.Guild = None):
-            bot.tree.copy_global_to(guild=guild)
+            if guild is not None:
+                bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync() if not guild else await bot.tree.sync(guild=guild)
             try:
                 print(f"{Fore.YELLOW}> Successfully synced {len(synced)} commands.{Fore.RESET}\n\n")

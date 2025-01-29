@@ -7,5 +7,5 @@ async def setup(bot: commands.Bot):
     await bot.add_cog(commands_triggers(bot))
 
 class commands_triggers(commands.Cog):
-    def __init__(self, bot: commands.Cog):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot

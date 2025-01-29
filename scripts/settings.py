@@ -2,6 +2,7 @@ import random
 import os
 import json
 import math
+from typing import Union
 import discord
 import yt_dlp
 import pyotp
@@ -17,8 +18,9 @@ from collections import deque
 
 #region Variables
 
-maintenance = False
-lang = "en"
+MAINTENANCE = False
+LANG = "en"
+AUTH_LIMIT = 20
 
 #endregion
 
@@ -147,24 +149,20 @@ def IsValidDate(day, month, year):
     except:
         return False
 
-async def Developing(ctx:discord.Interaction):
-    await ctx.response.defer(ephemeral=True)
-    await ctx.followup.send(Localize("still_developing"))
-
 #endregion
 
 #region Info
 
-def SetInfo(guild_id:int, key:str, value) -> json:
+def SetInfo(id:int, key:str, value) -> json:
     # Check paramenters.
-    if not guild_id:
+    if not id:
         return None
     if not key:
         return None
     # Try getting existent info.
     data:json = {}
     filePath = './settings.json'
-    guildId = f'{guild_id}'
+    guildId = f'{id}'
     exists = os.path.isfile(filePath)
     if exists:
         with open(filePath, 'r+', encoding='utf-8') as file:
@@ -193,16 +191,14 @@ def SetInfo(guild_id:int, key:str, value) -> json:
     return data
     ...
 
-    # 50 20 6 10 16 30 60
-
-def GetInfo(guild_id:int, key:str, default = None) -> json:
+def GetInfo(id:int, key:str, default = None) -> Union[None, dict, str]:
     # Check parameters.
-    if not guild_id:
+    if not id:
         return None
     # Try getting existing info.
     data:json = {}
     filePath = './settings.json'
-    guildId = f'{guild_id}'
+    guildId = f'{id}'
     exists = os.path.isfile(filePath)
     # Try getting existent info.
     if exists:
@@ -227,6 +223,7 @@ def GetInfo(guild_id:int, key:str, default = None) -> json:
     
     try:
         if tokens[-1]:
+            
             # Return key value.
             return lastToken[tokens[-1]]
         else:
@@ -250,11 +247,11 @@ def Localize(key:str, *args) -> str:
 
     keyLower:str = key.lower()
     if keyLower in data:
-        if lang in data:
-            return ReplaceArguments(data[keyLower][lang], *args)
-        elif "en" in lang:
+        if LANG in data:
+            return ReplaceArguments(data[keyLower][LANG], *args)
+        elif "en" in LANG:
             return ReplaceArguments(data[keyLower]["en"], *args)
-    return f"({keyLower}) - Localization not found."
+    return f"({keyLower})"
 
 def ReplaceArguments(template:str, *args) -> str:
     for i, arg in enumerate(args, start=1):

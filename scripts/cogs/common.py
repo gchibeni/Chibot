@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
-from discord.ui import Button, View
+from discord.ui import Button, View, Select, Modal
 
 import asyncio
 import wave
@@ -14,25 +14,66 @@ import numpy as np
 from datetime import datetime
 from collections import deque
 
+#region Initialization
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(commands_common(bot))
 
 class commands_common(commands.Cog):
-    def __init__(self, bot: commands.Cog):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+#endregion
+
+#region Utils
 
     # STATUS ────────────────
     @app_commands.command(name="status", description = "-")
     async def status(self, ctx:discord.Interaction):
-        await ctx.response.send_message(settings.Localize("bot_status", settings.maintenance, settings.lang), ephemeral=True, delete_after=2)
-    
+        await ctx.response.send_message(settings.Localize("bot_status", settings.MAINTENANCE, settings.LANG), ephemeral=True, delete_after=2)
+
+    # CLEAR ────────────────
+    @command(name="clear", description = "-")
+    @dm_only()
+    async def clear(self, ctx:discord.Interaction):
+        await ctx.response.defer(ephemeral=True)
+        async for message in ctx.channel.history(limit=100):
+            if message.author == self.bot.user:
+                await message.delete()
+        await ctx.followup.send(settings.Localize("dm_cleared"), ephemeral=True)
+
     # AVATAR ────────────────
     @command(name="avatar", description = "Fetch the avatar of any member")
     @describe(member="Target member")
+    @guild_only()
     async def avatar(self, ctx:discord.Interaction, member:discord.Member):
         await ctx.response.defer(thinking=True, ephemeral=True)
         embeded = discord.Embed(description=settings.Localize("fetched_avatar", member.mention)).set_image(url=member.display_avatar.url)
         await ctx.followup.send(embed=embeded, ephemeral=True)
+
+    # ANON ────────────────
+    @command(name="anon", description = "-")
+    @describe(user="Direct message target member")
+    async def anon(self, ctx:discord.Interaction, user:discord.User = None):
+        await ctx.response.send_modal(AnonModal(ctx, user, title=settings.Localize("anon_m_title")))
+
+    # REMINDER ────────────────
+    @command(name="reminder", description = "-")
+    async def remind_me(self, ctx:discord.Interaction):
+        await ctx.send_response("Reminder", ephemeral=True)
+
+    # PULL/BRING ────────────────
+    @command(name="pull", description = "-")
+    @guild_only()
+    async def pull(self, ctx:discord.Interaction):
+        settings.Developing(ctx)
+        return
+        await voice.Connect(ctx)
+        await ctx.send_response("Pull", ephemeral=True)
+
+#endregion
+
+#region Fun
     
     # FLIP ────────────────
     @command(name="flip", description = "-")
@@ -48,22 +89,44 @@ class commands_common(commands.Cog):
         def flipped_emoji(value):
             return '<a:heads:1163294205033062400>' if value == 0 else '<a:tails:1163293766791204874>'
         # Create buttons.
-        flip = Button(label="FLIP", style=discord.ButtonStyle.grey)
-        button = Button(label="", style=discord.ButtonStyle.blurple, emoji=flipped_emoji(flipped))
-        display = Button(label=f'➜  {ctx.user.display_name} flipped {flipped_name(flipped)}!', style=discord.ButtonStyle.grey)
+        flip = Button(label="FLIP", style=discord.ButtonStyle.grey, custom_id=str(ctx.user.id))
+        button = Button(label="", style=discord.ButtonStyle.blurple, emoji=flipped_emoji(flipped), custom_id=flipped_name(flipped))
+        display = Button(label=f'➜  {ctx.user.display_name} flipped {flipped_name(flipped)}!', style=discord.ButtonStyle.grey, custom_id="0")
+        lock = Button(label="", style=discord.ButtonStyle.grey, emoji="🔒")
         # Set callback functions.
         async def button_callback(interaction:discord.Interaction):
+            if button.disabled:
+                await interaction.response.defer()
+                return
             flipped = random.randint(0, 1)
-            button.label = "-" if button.label == "" else ""
+            repeated = int(display.custom_id) # Repeat count.
+            if flip.custom_id == str(interaction.user.id) and button.custom_id == flipped_name(flipped):
+                repeated = repeated + 1
+                button.label = f"x{repeated}"
+            else:
+                repeated = 0
+            display.custom_id = str(repeated) # Save repeat count.
+            flip.custom_id = str(interaction.user.id) # Save last user.
+            button.custom_id = flipped_name(flipped) # Save last value.
+            button.label = "" if repeated == 0 else f"x{repeated}"
             button.emoji = flipped_emoji(flipped)
             display.label = f'➜  {interaction.user.display_name} flipped {flipped_name(flipped)}!'
             await interaction.response.edit_message(view=view)
+        async def lock_callback(interaction:discord.Interaction):
+            if button.disabled:
+                await interaction.response.defer()
+                return
+            flip.disabled = button.disabled = display.disabled = True
+            view.remove_item(lock)
+            await interaction.response.edit_message(view=view)
         # Set button callbacks.
         flip.callback = button.callback = display.callback = button_callback
+        lock.callback = lock_callback
         # Add buttons.
         view.add_item(flip)
         view.add_item(button)
         view.add_item(display)
+        view.add_item(lock)
         # Send view.
         await ctx.followup.send(view=view, ephemeral=hidden)
 
@@ -77,27 +140,39 @@ class commands_common(commands.Cog):
         view = View()
         rolled = random.randint(1, number)
         # Create buttons.
-        roll = Button(label=F"ROLL", style=discord.ButtonStyle.grey)
+        roll = Button(label="ROLL", style=discord.ButtonStyle.grey)
         button = Button(label=rolled, style=discord.ButtonStyle.blurple)
         display = Button(label=f'➜  {ctx.user.display_name} rolled a D{number}!', style=discord.ButtonStyle.grey)
+        lock = Button(label="", style=discord.ButtonStyle.grey, emoji="🔒")
         # Set callback function.
         async def button_callback(interaction:discord.Interaction):
+            if button.disabled:
+                await interaction.response.defer()
+                return
             rolled = random.randint(1, number)
             button.label = rolled
             display.label = f'➜  {interaction.user.display_name} rolled a D{number}!'
             await interaction.response.edit_message(view=view)
+        async def lock_callback(interaction:discord.Interaction):
+            if button.disabled:
+                await interaction.response.defer()
+                return
+            roll.disabled = button.disabled = display.disabled = True
+            view.remove_item(lock)
+            await interaction.response.edit_message(view=view)
         # Set button callbacks.
         roll.callback = button.callback = display.callback = button_callback
+        lock.callback = lock_callback
         # Add buttons.
         view.add_item(roll)
         view.add_item(button)
         view.add_item(display)
+        view.add_item(lock)
         # Send view.
         await ctx.followup.send(view=view, ephemeral=hidden)
 
     # ROULETTE ────────────────
     @command(name="roulette", description = "-")
-    @guild_only()
     @describe(hidden="-")
     async def roulette(self, ctx:discord.Interaction, hidden:bool = False):
         await ctx.response.defer(thinking=True, ephemeral=hidden)
@@ -110,6 +185,9 @@ class commands_common(commands.Cog):
         dead = Button(label="➜  Russian roulette", style=discord.ButtonStyle.grey)
         # Set callback function.
         async def button_callback(interaction:discord.Interaction):
+            if button.disabled:
+                await interaction.response.defer()
+                return
             button_value = int(button.label) - 1
             if (dead_value == button_value):
                 button.label = "☠️"
@@ -131,34 +209,9 @@ class commands_common(commands.Cog):
         # Send view.
         await ctx.followup.send(view=view, ephemeral=hidden)
 
-    # ANON ────────────────
-    @command(name="anon", description = "-")
-    @describe(message="Anonymouse message")
-    @describe(member="Direct message target member")
-    async def anon(self, ctx:discord.Interaction, message:str, member:discord.Member = None):
-        await ctx.response.defer(thinking=True, ephemeral=True)
-        embeded = discord.Embed(description=message).set_footer(icon_url='https://i.gifer.com/L7sU.gif', text='➜ Sent anonymously')
-        # Send message anonymously.
-        if member is None:
-            await ctx.response.send_message(embed=embeded)
-        else:
-            await member.send(embed=embeded)
-        # Send confirmation.
-        await ctx.followup.send(settings.Localize("anon_message_sent"), ephemeral=True, delete_after=2)
+#endregion
 
-    # REMINDER ────────────────
-    @command(name="reminder", description = "-")
-    async def remind_me(self, ctx:discord.Interaction):
-        await ctx.send_response("Reminder", ephemeral=True)
-    
-    # PULL/BRING ────────────────
-    @command(name="pull", description = "-")
-    @guild_only()
-    async def pull(self, ctx:discord.Interaction):
-        settings.Developing(ctx)
-        return
-        await voice.Connect(ctx)
-        await ctx.send_response("Pull", ephemeral=True)
+#region Voice
 
     # REPLAY ────────────────
     @command(name="replay", description = "-")
@@ -183,3 +236,35 @@ class commands_common(commands.Cog):
             await ctx.channel.send(settings.Localize("recording_complete"), file=file)
             return
         await ctx.followup.send(settings.Localize("recording_failed"), ephemeral=True)
+
+#endregion
+
+#region Elements
+
+class AnonModal(Modal):
+    def __init__(self, ctx:discord.Interaction, user:discord.User, **kwargs):
+        super().__init__(**kwargs)
+        self.ctx = ctx
+        self.user = user
+        if user is None:
+            target_name = ctx.channel.name
+            target_id = ""
+        else:
+            target_name = user.display_name
+            target_id = f"(@{user.global_name})" 
+        anon_label = settings.Localize("anon_m_label", target_name, target_id)
+        # Create inputs.
+        self.message_input = discord.ui.TextInput(style=discord.TextStyle.long, label=anon_label, required=True, min_length=4, max_length=280)
+        self.add_item(self.message_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+         # Send confirmation.
+        await interaction.response.send_message(settings.Localize("anon_message_sent"), ephemeral=True)
+        embeded = discord.Embed(description=self.message_input.value).set_footer(icon_url='https://i.gifer.com/L7sU.gif', text='➜ Sent anonymously')
+        # Send message anonymously.
+        if self.user is None:
+            await interaction.channel.send(embed=embeded)
+        else:
+            await self.user.send(embed=embeded)
+
+#endregion

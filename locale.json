@@ -11,6 +11,10 @@
     {
         "en":"This is the bot status: <arg1> <arg2>"
     },
+    "auth_code":
+    {
+        "en":"Code: <arg1>"
+    },
     "auth_added":
     {
         "en":"-auth_added"
@@ -82,5 +86,13 @@
     "auth_code_describe":
     {
         "en":"-auth_code_describe"
+    },
+    "anon_m_title":
+    {
+        "en": " Send anonymously"
+    },
+    "anon_m_label":
+    {
+        "en": "Target ➜ <arg1> <arg2>"
     }
 }
