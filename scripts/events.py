@@ -32,7 +32,6 @@ class bot_events(commands.Bot):
             print(f"\n{Fore.GREEN}─── STATUS ───\n> Cogs started: \"{", ".join(cogs)}\"\n> Connected as: \"{bot.user}\"\n──────────────{Fore.RESET}\n")
             check_updates.start()
             await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="🫵"))
-            #await bot.tree.sync()
             ...
 
         @bot.event
@@ -121,7 +120,9 @@ class bot_events(commands.Bot):
         async def sync(guild:discord.Guild = None):
             if guild is not None:
                 bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync() if not guild else await bot.tree.sync(guild=guild)
+                synced = await bot.tree.sync(guild=guild)
+            else:
+                synced = await bot.tree.sync()
             try:
                 print(f"{Fore.YELLOW}> Successfully synced {len(synced)} commands.{Fore.RESET}\n\n")
                 #for command in synced: print(f" - {command.name}: {command.description}")

@@ -60,16 +60,13 @@ class commands_common(commands.Cog):
     # REMINDER ────────────────
     @command(name="reminder", description = "-")
     async def remind_me(self, ctx:discord.Interaction):
-        await ctx.send_response("Reminder", ephemeral=True)
+        await ctx.response.send_message("Reminder", ephemeral=True)
 
     # PULL/BRING ────────────────
     @command(name="pull", description = "-")
     @guild_only()
     async def pull(self, ctx:discord.Interaction):
-        settings.Developing(ctx)
-        return
-        await voice.Connect(ctx)
-        await ctx.send_response("Pull", ephemeral=True)
+        await ctx.response.send_message("Reminder", ephemeral=True)
 
 #endregion
 

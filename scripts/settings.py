@@ -13,8 +13,13 @@ import os
 import io
 import numpy
 from discord.ext import commands
+from discord import Embed
 from datetime import datetime, timezone, timedelta
 from collections import deque
+import requests
+import urllib
+import re
+
 
 #region Variables
 
@@ -148,6 +153,43 @@ def IsValidDate(day, month, year):
         return True
     except:
         return False
+
+def GetHTTP(url:str) -> str:
+    if not url:
+        return None
+    # Regular expression for validating a URL
+    url = url if url.startswith("http") else f"https://{url}"
+    return url if IsValidUrl(url) else None
+
+def IsValidUrl(url: str) -> bool:
+    if not url:
+        return False
+    regex = re.compile(
+        r'^(?:http|https)://' # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' # domain
+        r'localhost|' # localhost
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|' # ipv4
+        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)' # ipv6
+        r'(?::\d+)?' # port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE) # path
+    return re.match(regex, url) is not None
+
+def IsValidUrlImage(url: str) -> bool:
+    if not url:
+        return False
+    # Regex to check if the URL ends with valid image extensions
+    image_extensions = r'.*(?:\.png|\.jpg|\.jpeg|\.gif)$'
+    return re.match(image_extensions, url, re.IGNORECASE) is not None and IsValidUrl(url)
+
+def IsValidEmbed(embed: discord.Embed) -> bool:
+    return any([
+        embed.title,
+        embed.description,
+        embed.fields,
+        embed.footer.text if embed.footer else None,
+        embed.image.url if embed.image else None,
+        embed.thumbnail.url if embed.thumbnail else None,
+    ])
 
 #endregion
 

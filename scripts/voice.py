@@ -10,6 +10,10 @@ from datetime import datetime
 from collections import deque
 from discord.ext import voice_recv
 
+
+from discord import app_commands
+from discord.ext import commands, tasks, voice_recv
+
 #region Settings
 
 BUFFER_DURATION = 30  # Duration of the buffer in seconds
@@ -69,8 +73,41 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     # Stores the pcm audio per guild and user.
     guild_voices = {}
     guild_voices[ctx.guild_id] = {}
+    # Register each user's voice PCM.
+    def recorder_callback(user: discord.User, data):
+        try:
+            # Initialize circular buffer for each user
+            if ctx.guild_id not in last_timestamp:
+                last_timestamp[ctx.guild_id] = time.time()
+            
+            if user not in guild_voices[ctx.guild_id]:
+                guild_voices[ctx.guild_id][user] = deque(maxlen=BUFFER_SIZE)
+                last_timestamp[user] = time.time()
+
+            current_time = time.time()
+            elapsed_time = current_time - last_timestamp[user]
+            last_timestamp[user] = current_time
+
+            # Expected frame size based on elapsed time
+            expected_frame_count = int(SAMPLE_RATE * elapsed_time * CHANNELS)
+            actual_frame_count = len(data.pcm) // BYTES_PER_SAMPLE
+
+            # Add silence only if a significant gap is detected
+            silence_frame_count = max(0, expected_frame_count - actual_frame_count)
+            threshold_frame_count = int(0.02 * SAMPLE_RATE * CHANNELS)  # Allow 20 ms tolerance
+
+            if silence_frame_count > threshold_frame_count:
+                silence_chunk = b'\x00' * silence_frame_count * BYTES_PER_SAMPLE
+                guild_voices[ctx.guild_id][user].extend(silence_chunk)
+
+            # Append actual audio data
+            guild_voices[ctx.guild_id][user].extend(data.pcm)
+
+        except Exception as ex:
+            print(f"Error in voice callback: {ex}")
     # Connect to voice channel and start listeners.
-    voice_client:discord.VoiceClient = await ctx.user.voice.channel.connect()
+    voice_client = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
+    voice_client.listen(voice_recv.BasicSink(recorder_callback))
     # Return true if connected successfully.
     return settings.ConditionalMessage(True, "connected")
 
@@ -94,97 +131,54 @@ async def Disconnect(guild:discord.Guild) -> bool:
 
 #region Replay
 
-    # Register each user's voice PCM.
-    def recorder_callback(user: discord.User, data):
-        try:
-            # Initialize a circular buffer (deque) for each user.
-            current_time = time.time()
-            if ctx.guild_id not in last_timestamp:
-                last_timestamp[ctx.guild_id] = time.time()
-            if user not in guild_voices[ctx.guild_id]:
-                guild_voices[ctx.guild_id][user] = deque(maxlen=BUFFER_SIZE)
-                # Start user timestamp.
-                start_silence = current_time - last_timestamp[ctx.guild_id]
-                if start_silence >= 30:
-                    last_timestamp[user] = current_time - 30
-                else:
-                    last_timestamp[user] = current_time - start_silence
-            
-            # Calculate the duration since the last callback for this user.
-            elapsed_time = current_time - last_timestamp[user]
-            last_timestamp[user] = current_time
-            
-            # Calculate the duration of the received PCM frame.
-            pcm_frame_duration = len(data.pcm) / (SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE)
-            # Calculate the excess time beyond the current PCM frame.
-            gap_duration = elapsed_time - pcm_frame_duration
-            threshold = 1000 / SAMPLE_RATE
-            # threshold = 0.015
-
-            # Append silence only if the excess time exceeds the PCM frame duration.
-            if gap_duration > threshold:
-                # Calculate the number of silence frames needed.
-                silence_frames = int(gap_duration * SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE)
-                # Ensure silence frames are a multiple of the sample size.
-                silence_frames -= silence_frames % (CHANNELS * BYTES_PER_SAMPLE)
-                # Append silence frames incrementally.
-                silence_chunk_size = SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE  # Silence chunk in frames (1 second worth of data)
-                silence_chunk_size -= silence_chunk_size % (CHANNELS * BYTES_PER_SAMPLE)
-                silence = b'\x00' * silence_chunk_size  # Generate silence (PCM zeros)
-                while silence_frames > 0:
-                    if silence_frames >= silence_chunk_size:
-                        guild_voices[ctx.guild_id][user].extend(silence)
-                        silence_frames -= silence_chunk_size
-                    else:
-                        # Append remaining silence if less than a full chunk.
-                        guild_voices[ctx.guild_id][user].extend(b'\x00' * silence_frames)
-                        silence_frames = 0
-            # Append new PCM data to the user's buffer.
-            guild_voices[ctx.guild_id][user].extend(data.pcm)
-        except Exception as ex:
-            print("VoiceRecv callback failed\n" + ex)
-
-async def SaveReplay(ctx:discord.Interaction, seconds:int = 5, pitch:int = 1) -> discord.File:
-    # Initialize variables.
+async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: int = 1) -> discord.File:
+    # Initialize variables
     global guild_voices
-    PITCH = max(0.5, min(pitch, 1.5)) # Change to specified pitch.
-    PITCH = (SAMPLE_RATE * PITCH) - SAMPLE_RATE # Get pitch bitrate.
+    PITCH = max(0.5, min(pitch, 1.5))  # Change to specified pitch
+    PITCH = (SAMPLE_RATE * PITCH) - SAMPLE_RATE  # Get pitch bitrate
 
-    # Number of samples to keep for the specified duration.
-    num_samples_to_keep = SAMPLE_RATE * CHANNELS * seconds
-
-    # Process the last specified length of audio of every user.
+    # Number of samples to keep for the specified duration
+    requested_samples = SAMPLE_RATE * CHANNELS * seconds
+    max_recorded_samples = max(len(bytes(buffer)) // BYTES_PER_SAMPLE for buffer in guild_voices[ctx.guild_id].values())
+    
+    # Cap the replay duration to the actual recorded duration
+    effective_samples = min(requested_samples, max_recorded_samples)
+    
+    # Process the last portion of audio for every user
     all_audio = []
     for user, buffer in guild_voices[ctx.guild_id].items():
-        # Convert the buffer to a numpy array.
         pcm_data = numpy.frombuffer(bytes(buffer), dtype=numpy.int16)
-        # Trim to the last `num_samples_to_keep` samples.
-        if len(pcm_data) > num_samples_to_keep:
-            pcm_data = pcm_data[-num_samples_to_keep:]
+        
+        # Trim to the last effective sample count
+        if len(pcm_data) > effective_samples:
+            pcm_data = pcm_data[-effective_samples:]
+        
         all_audio.append(pcm_data)
     
-    # Mix all users' audio by avaraging the PCM values.
+    # Mix all users' audio by averaging the PCM values
     if all_audio:
-        # File name to save the audio.
         filename = f"rec_{ctx.guild_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.wav"
-        # Create a memory buffer for the audio data
+        
         with io.BytesIO() as audio_buffer:
-            # Pad all audio arrays to the max length with zeros (silence)
+            # Pad all audio arrays to max length with zeros (silence)
             max_length = max(map(len, all_audio))
             padded_audio = [numpy.pad(audio, (0, max_length - len(audio)), mode='constant') for audio in all_audio]
-            # Mix all users' audio by averaging the padded PCM values
+            
+            # Mix all users' audio by averaging the PCM values
             mixed_audio = numpy.mean(padded_audio, axis=0).astype(numpy.int16)
+            
             # Write the mixed audio to the memory buffer as a .wav file
             with wave.open(audio_buffer, 'wb') as wav_file:
-                wav_file.setnchannels(CHANNELS)  # Set as stereo or mono
-                wav_file.setsampwidth(2)         # 2 bps (16-bit PCM)
-                wav_file.setframerate(SAMPLE_RATE + PITCH)  # Set sample bitrate
+                wav_file.setnchannels(CHANNELS)
+                wav_file.setsampwidth(BYTES_PER_SAMPLE)
+                wav_file.setframerate(SAMPLE_RATE + PITCH)
                 wav_file.writeframes(mixed_audio.tobytes())
-            # Move to the start of the buffer before sending
+            
+            # Return the generated file
             audio_buffer.seek(0)
-            print(f"Audio saved as {filename}")
             file = discord.File(audio_buffer, filename)
             return file
+
     return None
 
 #endregion
@@ -194,7 +188,7 @@ async def SaveReplay(ctx:discord.Interaction, seconds:int = 5, pitch:int = 1) ->
 async def PlayAudio(ctx:discord.Interaction, url:str):
     global ytdl, ffmpeg_settings
     # Extract audio information and play
-    voice_client:discord.VoiceClient = ctx.voice_client
+    voice_client:voice_recv.VoiceRecvClient = ctx.guild.voice_client
     try:
         info = ytdl.extract_info(url, download=False)
         info = get_audio_info(info)
