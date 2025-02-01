@@ -77,7 +77,7 @@ class bot_events(commands.Bot):
             
             # Print message log.
             if not content:
-                content = '── EMPTY MESSAGE or EMBEDED MESSAGE ── ]]]'
+                content = '── EMPTY MESSAGE or embedded MESSAGE ── ]]]'
             print(f'⎾ {directed} ||| {channel} ⏋ ⤵')
             print(f'< {author.id} ||| {author.display_name}> <M>: {content}')
         

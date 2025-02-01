@@ -66,11 +66,14 @@ class AuthView(View):
                     totp = pyotp.TOTP(auths[option.label]["secret"])
                     auth_code = totp.now()
                     time_remaining = totp.interval - (time.time() % totp.interval)
-                    select_view.placeholder = f"{option.label}  ({int(time_remaining)}s)  ➜  {auth_code}"
+                    time_stamp = int(time.time() + time_remaining)
+                    #embedded = discord.Embed(description=f"`{option.label}`  ➜  `{auth_code}`\n-# Expiration • <t:{time_stamp}:R>")
+                    select_view.placeholder = f"{option.label}  ➜  {auth_code}"
+                    embedded = discord.Embed(description=f"-# Expiration • <t:{time_stamp}:R>")
             if warning:
                 self.remove_item(warning_button)
             reload_auths()
-            await interaction.response.edit_message(view=self)
+            await interaction.response.edit_message(embed=embedded, view=self)
 
         async def add_callback(interaction:discord.Interaction):
             add_modal = AddAuthModal(ctx, title=settings.Localize("auth_add_title"))
@@ -82,7 +85,7 @@ class AuthView(View):
                 remove_modal = RemoveAuthModal(ctx, selected_auth, title=settings.Localize("auth_add_title"))
                 await interaction.response.send_modal(remove_modal)
             else:
-                await interaction.response.edit_message(view=AuthView(ctx,warning=settings.Localize("auth_not_selected")))
+                await interaction.response.edit_message(embed=None, view=AuthView(ctx,warning=settings.Localize("auth_not_selected")))
         
         # Set callbacks.
         select_view.callback = select_callback
@@ -146,16 +149,16 @@ class RemoveAuthModal(Modal):
         selected_auth = self.selected_auth
         # Check if confirmation was correct.
         if confirm_input != self.confirm_text.lower():
-            await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("auth_wrong_confirmation")))
+            await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("auth_wrong_confirmation")))
             return
         #Check if any auth was found.
         auth:str = settings.GetInfo(self.key_id, f"authenticators/{selected_auth}")
         if auth is None:
-            await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("auth_not_found", selected_auth)))
+            await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("auth_not_found", selected_auth)))
             return
         # Delete matching auth.
         settings.SetInfo(self.key_id, f"authenticators/{selected_auth}", None)
-        await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("auth_removed", selected_auth)))
+        await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("auth_removed", selected_auth)))
         ...
 
 #endregion

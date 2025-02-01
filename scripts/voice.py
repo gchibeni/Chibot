@@ -131,50 +131,50 @@ async def Disconnect(guild:discord.Guild) -> bool:
 
 #region Replay
 
-async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: int = 1) -> discord.File:
-    # Initialize variables
+async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 1) -> discord.File:
     global guild_voices
-    PITCH = max(0.5, min(pitch, 1.5))  # Change to specified pitch
-    PITCH = (SAMPLE_RATE * PITCH) - SAMPLE_RATE  # Get pitch bitrate
 
+    # Validate pitch bounds
+    pitch = max(0.5, min(pitch, 1.5))
+    
     # Number of samples to keep for the specified duration
-    requested_samples = SAMPLE_RATE * CHANNELS * seconds
-    max_recorded_samples = max(len(bytes(buffer)) // BYTES_PER_SAMPLE for buffer in guild_voices[ctx.guild_id].values())
-    
-    # Cap the replay duration to the actual recorded duration
-    effective_samples = min(requested_samples, max_recorded_samples)
-    
-    # Process the last portion of audio for every user
+    num_samples_to_keep = SAMPLE_RATE * CHANNELS * seconds
+
+    # Process the last specified length of audio for every user
     all_audio = []
     for user, buffer in guild_voices[ctx.guild_id].items():
+        # Convert the buffer to a numpy array
         pcm_data = numpy.frombuffer(bytes(buffer), dtype=numpy.int16)
-        
-        # Trim to the last effective sample count
-        if len(pcm_data) > effective_samples:
-            pcm_data = pcm_data[-effective_samples:]
-        
+        # Pad or trim to the last `num_samples_to_keep` samples
+        if len(pcm_data) > num_samples_to_keep:
+            pcm_data = pcm_data[-num_samples_to_keep:]
+        else:
+            # Add silence if needed to match length
+            silence_samples = num_samples_to_keep - len(pcm_data)
+            pcm_data = numpy.pad(pcm_data, (0, silence_samples), mode='constant')
         all_audio.append(pcm_data)
-    
-    # Mix all users' audio by averaging the PCM values
+
+    # Mix all users' audio by averaging PCM values
     if all_audio:
+        # File name to save the audio
         filename = f"rec_{ctx.guild_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.wav"
-        
+
+        # Create a memory buffer for the audio data
         with io.BytesIO() as audio_buffer:
-            # Pad all audio arrays to max length with zeros (silence)
+            # Ensure all audio arrays are padded to the same length
             max_length = max(map(len, all_audio))
             padded_audio = [numpy.pad(audio, (0, max_length - len(audio)), mode='constant') for audio in all_audio]
-            
-            # Mix all users' audio by averaging the PCM values
+            # Mix all users' audio by averaging the padded PCM values
             mixed_audio = numpy.mean(padded_audio, axis=0).astype(numpy.int16)
             
             # Write the mixed audio to the memory buffer as a .wav file
             with wave.open(audio_buffer, 'wb') as wav_file:
-                wav_file.setnchannels(CHANNELS)
-                wav_file.setsampwidth(BYTES_PER_SAMPLE)
-                wav_file.setframerate(SAMPLE_RATE + PITCH)
+                wav_file.setnchannels(CHANNELS)  # Stereo
+                wav_file.setsampwidth(2)         # 2 bytes per sample (16-bit PCM)
+                wav_file.setframerate(int(SAMPLE_RATE * pitch))  # Adjust sample rate for pitch
                 wav_file.writeframes(mixed_audio.tobytes())
             
-            # Return the generated file
+            # Move to the start of the buffer before sending
             audio_buffer.seek(0)
             file = discord.File(audio_buffer, filename)
             return file

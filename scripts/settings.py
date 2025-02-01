@@ -154,12 +154,13 @@ def IsValidDate(day, month, year):
     except:
         return False
 
-def GetHTTP(url:str) -> str:
+def GetHTTP(url:str, image:bool = False) -> str:
     if not url:
         return None
     # Regular expression for validating a URL
     url = url if url.startswith("http") else f"https://{url}"
-    return url if IsValidUrl(url) else None
+    is_valid = IsValidUrl(url) if not image else IsValidUrlImage(url)
+    return url if is_valid else None
 
 def IsValidUrl(url: str) -> bool:
     if not url:
@@ -190,6 +191,31 @@ def IsValidEmbed(embed: discord.Embed) -> bool:
         embed.image.url if embed.image else None,
         embed.thumbnail.url if embed.thumbnail else None,
     ])
+
+def EmbedClean(embed:discord.Embed, check_valid:bool = False) -> discord.Embed:
+    # Fetch or generate embed.
+    new_embed = discord.Embed()
+    embed = embed or discord.Embed()
+    # Copy values.
+    new_embed.title = embed.title or ""
+    new_embed.description = embed.description or ""
+    new_embed.url = GetHTTP(embed.url) or None
+    new_embed.colour = embed.colour or None
+    new_embed.set_image(url=GetHTTP(embed.image.url, True) or None)
+    new_embed.set_thumbnail(url=GetHTTP(embed.thumbnail.url, True) or None)
+    new_embed.set_footer(text=embed.footer.text or "",
+    icon_url=GetHTTP(embed.footer.icon_url, True) or None
+    )
+    new_embed.set_author(
+        name=embed.author.name or "",
+        url=GetHTTP(embed.author.url) or None,
+        icon_url=GetHTTP(embed.author.icon_url, True) or None
+        )
+    # Check and save.
+
+    if check_valid and not IsValidEmbed(new_embed):
+        new_embed.description = "ㅤ"
+    return new_embed
 
 #endregion
 

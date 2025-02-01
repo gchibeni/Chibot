@@ -94,12 +94,12 @@ async def update_playlist(guild):
                 queuestr += f'```#.. : List is too long . . .```'
             elif s != 0: queuestr += f'```#{s:02d} : {i.title}```'
             else: playing = f'\n──────── Playing ────────\n ```#00 : {i.title}```'; user = i.user
-        # Create embeded message for when there is music playing.
-        embeded = (hikari.Embed(description=f'{queuestr+playing}').set_footer(icon=user.avatar_url,text=f'Requested by ➜ {user.username} '))
-    # Create embeded message for when there is no music playing.
-    else: embeded = (hikari.Embed(description=f'\nPlaying ➜ ```#00 : No media playing . . .```').set_footer(icon=f'https://i.gifer.com/L7sU.gif',text='Requested by ➜ . . .'))
+        # Create embedded message for when there is music playing.
+        embedded = (hikari.Embed(description=f'{queuestr+playing}').set_footer(icon=user.avatar_url,text=f'Requested by ➜ {user.username} '))
+    # Create embedded message for when there is no music playing.
+    else: embedded = (hikari.Embed(description=f'\nPlaying ➜ ```#00 : No media playing . . .```').set_footer(icon=f'https://i.gifer.com/L7sU.gif',text='Requested by ➜ . . .'))
     # Try and edit message.
-    try: await bot.rest.edit_message(channel=messageid[0],message=messageid[1],content=embeded)
+    try: await bot.rest.edit_message(channel=messageid[0],message=messageid[1],content=embedded)
     except: print(f'< Music <X>: Could not update playlist message.')
 
 async def get_spotify_playlist(url):
@@ -265,8 +265,8 @@ async def musicmsg(ctx: lightbulb.Context) -> None:
     guild = ctx.guild_id
     channel = ctx.get_channel()
     # Create music message.
-    embeded = (hikari.Embed(description=f'──────── Playing ────────\n```#00 : Use /play to add media to playlist.```').set_footer(icon=f'https://i.gifer.com/L7sU.gif',text=f'Requested by ➜ . . .'))
-    message = await bot.rest.create_message(channel=channel,content=embeded)
+    embedded = (hikari.Embed(description=f'──────── Playing ────────\n```#00 : Use /play to add media to playlist.```').set_footer(icon=f'https://i.gifer.com/L7sU.gif',text=f'Requested by ➜ . . .'))
+    message = await bot.rest.create_message(channel=channel,content=embedded)
     await ctx.respond(f'─── MEDIA ─── Music message created.', delete_after=0)
     # Update guild info.
     update_guild_info(guild, 'music_message', f'{channel.id}/{message.id}')
@@ -340,9 +340,9 @@ async def listtriggers(ctx: lightbulb.Context) -> None:
     for i in texttriggers:
         triggers = i.replace('|', ' | ')[0:100]; responses = texttriggers[i].replace('|', ' | ')[0:100]
         queuestr += f'\n```#{count:02d} : ──────────\n\n─── TRIGGERS ───\n> [ {triggers} ] . . .\n─── RESPONSES ──\n> [ {responses} ]  . . .```'; count += 1
-    # Create and send embeded.
-    embeded = (hikari.Embed(description=f'{queuestr}').set_footer(text=f'Trigger list and indexes'))
-    await ctx.respond(content=embeded, flags=hikari.MessageFlag.EPHEMERAL)
+    # Create and send embedded.
+    embedded = (hikari.Embed(description=f'{queuestr}').set_footer(text=f'Trigger list and indexes'))
+    await ctx.respond(content=embedded, flags=hikari.MessageFlag.EPHEMERAL)
 
 # TRIGGERS DELETE ─────
 @triggersc.child
@@ -453,7 +453,7 @@ async def on_message(message : hikari.GuildMessageCreateEvent):
                         await play_audio(guild.id, soundpath)
 
     # Print user action and messages for debugging purposes.
-    if not content: content = '── EMPTY MESSAGE or EMBEDED MESSAGE ── ]]]'
+    if not content: content = '── EMPTY MESSAGE or embedded MESSAGE ── ]]]'
     print(f'⎾ {guild.name} ||| {channel} ⏋ ⤵')
     print(f'< {author.id} ||| {author.username}> <M>: {content}')
 

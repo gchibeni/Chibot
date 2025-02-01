@@ -48,8 +48,8 @@ class commands_common(commands.Cog):
     @guild_only()
     async def avatar(self, ctx:discord.Interaction, member:discord.Member):
         await ctx.response.defer(thinking=True, ephemeral=True)
-        embeded = discord.Embed(description=settings.Localize("fetched_avatar", member.mention)).set_image(url=member.display_avatar.url)
-        await ctx.followup.send(embed=embeded, ephemeral=True)
+        embedded = discord.Embed(description=settings.Localize("fetched_avatar", member.mention)).set_image(url=member.display_avatar.url)
+        await ctx.followup.send(embed=embedded, ephemeral=True)
 
     # ANON ────────────────
     @command(name="anon", description = "-")
@@ -257,11 +257,11 @@ class AnonModal(Modal):
     async def on_submit(self, interaction: discord.Interaction):
          # Send confirmation.
         await interaction.response.send_message(settings.Localize("anon_message_sent"), ephemeral=True)
-        embeded = discord.Embed(description=self.message_input.value).set_footer(icon_url='https://i.gifer.com/L7sU.gif', text='➜ Sent anonymously')
+        embedded = discord.Embed(description=self.message_input.value).set_footer(icon_url='https://i.gifer.com/L7sU.gif', text='➜ Sent anonymously')
         # Send message anonymously.
         if self.user is None:
-            await interaction.channel.send(embed=embeded)
+            await interaction.channel.send(embed=embedded)
         else:
-            await self.user.send(embed=embeded)
+            await self.user.send(embed=embedded)
 
 #endregion

@@ -7,7 +7,11 @@ from datetime import time, datetime, timezone
 import os
 from typing import List
 
+#region Global
+
 editing_say = {} # All users editing "say" messages.
+
+#endregion
 
 #region Initialization
 
@@ -129,10 +133,8 @@ class commands_admin(commands.Cog):
     @guild_only()
     @describe(quantity="Quantity of messages to be purged")
     @describe(force="Force delete past marked messages")
-    async def purge(self, ctx: discord.Interaction, quantity:Range[int,1,1000] = 1, force:bool = False):
+    async def purge(self, ctx: discord.Interaction, quantity:Range[int,1,250] = 1, force:bool = False):
         await ctx.response.defer(ephemeral=True)
-        # Common variables.
-        channel : discord.TextChannel = ctx.channel
         # Check function.
         def check_favorite(message:discord.Message):
             isPinned = message.pinned
@@ -146,16 +148,9 @@ class commands_admin(commands.Cog):
         # Purge messages.
         if (quantity <= 0):
             quantity = 1
-        await channel.purge(limit=quantity, check=check_favorite)
+        await ctx.channel.purge(limit=quantity, check=check_favorite, bulk=True)
         # Send purging confirmation.
         await ctx.followup.send(settings.Localize("purged_messages", quantity))
-
-    # ALLOW PULL ────────────────
-    @command(name="allowpull", description = "-")
-    @default_permissions(administrator=True)
-    @guild_only()
-    async def allow_pull(self, ctx: discord.Interaction):
-        await ctx.response.send_message("Allow Pull", ephemeral=True)
 
     # TODO: Change this to /theme add
     # ADD ICON ────────────────
@@ -233,7 +228,7 @@ class SaySettingsView(View):
             await interaction.response.send_modal(SayMessageModal(title=settings.Localize("say_message_title")))
             ...      
         async def embed_callback(interaction:discord.Interaction):
-            await interaction.response.edit_message(view=SayEmbededView())
+            await interaction.response.edit_message(view=SayEmbeddedView())
             ...
         async def files_callback(interaction:discord.Interaction):
             await interaction.response.edit_message(view=SayFilesView())
@@ -288,7 +283,6 @@ class SaySettingsView(View):
         self.add_item(embed_button)
         self.add_item(files_button)
 
-
 class SayFilesView(View):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -322,7 +316,7 @@ class SayMessageModal(Modal):
         editing_say[interaction.user.id]["content"] = content
         await interaction.response.edit_message(content=content, view=SaySettingsView())
 
-class SayEmbededView(View):
+class SayEmbeddedView(View):
     def __init__(self, warning:str = None, **kwargs):
         super().__init__(**kwargs)
         global editing_say
@@ -358,23 +352,23 @@ class SayEmbededView(View):
             await interaction.response.edit_message(embed=None)
         async def color_callback(interaction:discord.Interaction):
             # Fetch and clean.
-            embeded:discord.Embed = editing_say[interaction.user.id]["embed"]
-            embeded = EmbedClean(embeded)
+            embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
+            embedded = settings.EmbedClean(embedded)
             # Change values.
             color_value = int(color_select.values[0].lstrip("#"), 16)
-            embeded.color = color_value if color_value != 0 else None
-            # Save and send preview embeded.
-            editing_say[interaction.user.id]["embed"] = embeded
-            preview_embeded = EmbedClean(embeded, True)
-            await interaction.response.edit_message(embed=preview_embeded)
+            embedded.color = color_value if color_value != 0 else None
+            # Save and send preview embedded.
+            editing_say[interaction.user.id]["embed"] = embedded
+            preview_embedded = settings.EmbedClean(embedded, True)
+            await interaction.response.edit_message(embed=preview_embedded)
         async def author_callback(interaction:discord.Interaction):
-            #editing_say[interaction.user.id]["embed"] = embeded
+            #editing_say[interaction.user.id]["embed"] = embedded
             await interaction.response.send_modal(EmbedAuthorModal(title=settings.Localize("say_embed_title")))
         async def content_callback(interaction:discord.Interaction):
-            #editing_say[interaction.user.id]["embed"] = embeded
+            #editing_say[interaction.user.id]["embed"] = embedded
             await interaction.response.send_modal(EmbedContentModal(title=settings.Localize("say_embed_title")))
         async def footer_callback(interaction:discord.Interaction):
-            #editing_say[interaction.user.id]["embed"] = embeded
+            #editing_say[interaction.user.id]["embed"] = embedded
             await interaction.response.send_modal(EmbedFooterModal(title=settings.Localize("say_embed_title")))
         # Set callbacks.
         return_button.callback = return_callback
@@ -391,7 +385,6 @@ class SayEmbededView(View):
         self.add_item(author_button)
         self.add_item(content_button)
         self.add_item(footer_button)
-        ...
     ...
 
 class EmbedAuthorModal(Modal):
@@ -401,15 +394,24 @@ class EmbedAuthorModal(Modal):
     avatar_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_author_avatar_url_label"), required=False, max_length=1000)
     async def on_submit(self, interaction:discord.Interaction):
         # Fetch and clean.
-        embeded:discord.Embed = editing_say[interaction.user.id]["embed"]
-        embeded = EmbedClean(embeded)
+        embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
+        embedded = settings.EmbedClean(embedded)
+        # Simplify variables.
+        author = self.author_input.value
+        website = self.website_input.value
+        avatar = self.avatar_input.value
         # Change values.
-        embeded.set_author(name="", url="", icon_url="")
-
-        # Save and send preview embeded.
-        editing_say[interaction.user.id]["embed"] = embeded
-        preview_embeded = EmbedClean(embeded)
-        await interaction.response.edit_message(embed=preview_embeded, view=SayEmbededView("warning"))
+        embedded.set_author(name=author, url=website, icon_url=avatar)
+        # Check errors.
+        warning = None
+        if website and not settings.GetHTTP(website):
+            warning = settings.Localize("error_embed_invalid_url")
+        if avatar and not settings.GetHTTP(avatar):
+            warning = settings.Localize("error_embed_invalid_image_url")
+        # Save and send preview embedded.
+        editing_say[interaction.user.id]["embed"] = embedded
+        preview_embedded = settings.EmbedClean(embedded, True)
+        await interaction.response.edit_message(embed=preview_embedded, view=SayEmbeddedView(warning))
         ...
 
 class EmbedContentModal(Modal):
@@ -421,20 +423,30 @@ class EmbedContentModal(Modal):
     thumbnail_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_thumbnail_label"), required=False, max_length=1000)
     async def on_submit(self, interaction:discord.Interaction):
         # Fetch and clean.
-        embeded:discord.Embed = editing_say[interaction.user.id]["embed"]
-        embeded = EmbedClean(embeded)
+        embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
+        embedded = settings.EmbedClean(embedded)
+        # Simplify variables.
+        title = self.title_input.value
+        description = self.description_input.value
+        url = self.website_input.value
+        image = self.image_input.value
+        thumbnail = self.thumbnail_input.value
         # Change values.
-        embeded.title = self.title_input.value
-        embeded.description = self.description_input.value
-        embeded.url = self.website_input.value if settings.IsValidUrl(self.website_input.value) else None
-        embeded.set_image(url=self.image_input.value if settings.IsValidUrlImage(self.image_input.value) else None)
-        embeded.set_thumbnail(url=self.thumbnail_input.value if settings.IsValidUrlImage(self.thumbnail_input.value) else None)
+        embedded.title = title
+        embedded.description = description
+        embedded.url = url
+        embedded.set_image(url=image)
+        embedded.set_thumbnail(url=thumbnail)
         # Check errors.
-        # Save and send preview embeded.
-        editing_say[interaction.user.id]["embed"] = embeded
-        preview_embeded = EmbedClean(embeded)
-        warning = "test"
-        await interaction.response.edit_message(embed=preview_embeded, view=SayEmbededView(warning or None))
+        warning = None
+        if url and not settings.GetHTTP(url):
+            warning = settings.Localize("error_embed_invalid_url")
+        if image and not settings.GetHTTP(image, True) or thumbnail and not settings.GetHTTP(thumbnail, True):
+            warning = settings.Localize("error_embed_invalid_image_url")
+        # Save and send preview embedded.
+        editing_say[interaction.user.id]["embed"] = embedded
+        preview_embedded = settings.EmbedClean(embedded, True)
+        await interaction.response.edit_message(embed=preview_embedded, view=SayEmbeddedView(warning))
         ...
 
 class EmbedFooterModal(Modal):
@@ -443,39 +455,21 @@ class EmbedFooterModal(Modal):
     icon_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_footer_icon_label"), required=False, max_length=1000)
     async def on_submit(self, interaction:discord.Interaction):
         # Fetch and clean.
-        embeded:discord.Embed = editing_say[interaction.user.id]["embed"]
-        embeded = EmbedClean(embeded)
+        embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
+        embedded = settings.EmbedClean(embedded)
         # Simplify variables.
         content = self.content_input.value
         icon_url = self.icon_input.value
+        # Change values.
+        embedded.set_footer(text=content, icon_url=icon_url)
         # Check errors.
         warning = None
-        if icon_url and not settings.GetHTTP(icon_url):
-            warning = settings.Localize("error_invalid_url")
-        # Change values.
-        embeded.set_footer(text=content, icon_url=icon_url)
-        # Save and send preview embeded.
-        editing_say[interaction.user.id]["embed"] = embeded
-        preview_embeded = EmbedClean(embeded)
-        await interaction.response.edit_message(embed=preview_embeded, view=SayEmbededView(warning))
+        if icon_url and not settings.GetHTTP(icon_url, True):
+            warning = settings.Localize("error_embed_invalid_image_url")
+        # Save and send preview embedded.
+        editing_say[interaction.user.id]["embed"] = embedded
+        preview_embedded = settings.EmbedClean(embedded, True)
+        await interaction.response.edit_message(embed=preview_embedded, view=SayEmbeddedView(warning))
         ...
-
-def EmbedClean(embed:discord.Embed, check_valid:bool = False) -> discord.Embed:
-    # Fetch or generate embed.
-    new_embed = discord.Embed()
-    embed = embed or discord.Embed()
-    # Copy values.
-    new_embed.title = embed.title or ""
-    new_embed.description = embed.description or ""
-    new_embed.url = embed.url or None
-    new_embed.colour = embed.colour or None
-    new_embed.set_image(url=embed.image.url or None)
-    new_embed.set_thumbnail(url=embed.thumbnail.url or None)
-    new_embed.set_footer(text=embed.footer.text or "", icon_url=embed.footer.icon_url or None)
-    new_embed.set_author(name=embed.author.name or "", url=embed.author.url or None, icon_url=embed.author.icon_url or None)
-    # Check and save.
-    if check_valid and not settings.IsValidEmbed(new_embed):
-        new_embed.description = "ㅤ"
-    return new_embed
 
 #endregion
