@@ -8,13 +8,10 @@ import time
 import discord
 from datetime import datetime
 from collections import deque
-from discord.ext import voice_recv
+from discord.ext.voice_recv import VoiceData, VoiceRecvClient, BasicSink
+import collections
 
-
-from discord import app_commands
-from discord.ext import commands, tasks, voice_recv
-
-#region Settings
+#region Global
 
 BUFFER_DURATION = 30  # Duration of the buffer in seconds
 SAMPLE_RATE = 48000  # Discord uses 48kHz
@@ -42,8 +39,8 @@ ytdl_settings = {
 }
 
 ytdl = yt_dlp.YoutubeDL(ytdl_settings)
-guild_voices = {}
-last_timestamp = {}
+guild_voices:dict[str, dict[discord.User, collections.deque]] = {}
+last_timestamp:dict[discord.User, float] = {}
 
 #endregion
 
@@ -54,7 +51,7 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     # Initialize variables.
     global guild_voices, last_timestamp
     # Check if already connected to any guild's voice channel.
-    voice_client = ctx.guild.voice_client
+    voice_client:discord.VoiceClient = ctx.guild.voice_client
     connected = voice_client and voice_client.is_connected()
     same_channel = False if not voice_client else voice_client.channel.id == ctx.user.voice.channel.id
     # Check if bot is not connected to any voice channel.
@@ -74,17 +71,15 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     guild_voices = {}
     guild_voices[ctx.guild_id] = {}
     # Register each user's voice PCM.
-    def recorder_callback(user: discord.User, data):
+    def recorder_callback(user: discord.User, data: VoiceData):
         try:
             # Initialize circular buffer for each user
-            if ctx.guild_id not in last_timestamp:
-                last_timestamp[ctx.guild_id] = time.time()
-            
+            timestamp = time.time()
             if user not in guild_voices[ctx.guild_id]:
                 guild_voices[ctx.guild_id][user] = deque(maxlen=BUFFER_SIZE)
-                last_timestamp[user] = time.time()
-
-            current_time = time.time()
+                last_timestamp[user] = timestamp
+            
+            current_time = timestamp
             elapsed_time = current_time - last_timestamp[user]
             last_timestamp[user] = current_time
 
@@ -102,12 +97,13 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
 
             # Append actual audio data
             guild_voices[ctx.guild_id][user].extend(data.pcm)
+            #print(type(guild_voices[ctx.guild_id][user]))
 
         except Exception as ex:
             print(f"Error in voice callback: {ex}")
     # Connect to voice channel and start listeners.
-    voice_client = await ctx.user.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
-    voice_client.listen(voice_recv.BasicSink(recorder_callback))
+    voice_client = await ctx.user.voice.channel.connect(cls=VoiceRecvClient)
+    voice_client.listen(BasicSink(recorder_callback))
     # Return true if connected successfully.
     return settings.ConditionalMessage(True, "connected")
 
@@ -133,16 +129,23 @@ async def Disconnect(guild:discord.Guild) -> bool:
 
 async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 1) -> discord.File:
     global guild_voices
-
+    timestamp = time.time()
     # Validate pitch bounds
     pitch = max(0.5, min(pitch, 1.5))
-    
     # Number of samples to keep for the specified duration
-    num_samples_to_keep = SAMPLE_RATE * CHANNELS * seconds
-
+    requested_samples = SAMPLE_RATE * CHANNELS * seconds
+    max_recorded_samples = max(len(bytes(buffer)) // BYTES_PER_SAMPLE for buffer in guild_voices[ctx.guild_id].values())
+    num_samples_to_keep = min(requested_samples, max_recorded_samples)
     # Process the last specified length of audio for every user
     all_audio = []
     for user, buffer in guild_voices[ctx.guild_id].items():
+        # Check final silence elapsed time
+        current_time = timestamp
+        elapsed_time = current_time - last_timestamp[user]
+        expected_silence_count = int(SAMPLE_RATE * elapsed_time * CHANNELS)
+        # Add final silence padding.
+        silence_chunk = b'\x00' * expected_silence_count * BYTES_PER_SAMPLE
+        buffer.extend(silence_chunk)
         # Convert the buffer to a numpy array
         pcm_data = numpy.frombuffer(bytes(buffer), dtype=numpy.int16)
         # Pad or trim to the last `num_samples_to_keep` samples
@@ -153,33 +156,30 @@ async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 
             silence_samples = num_samples_to_keep - len(pcm_data)
             pcm_data = numpy.pad(pcm_data, (0, silence_samples), mode='constant')
         all_audio.append(pcm_data)
-
     # Mix all users' audio by averaging PCM values
     if all_audio:
         # File name to save the audio
-        filename = f"rec_{ctx.guild_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.wav"
-
+        filename = f"rec_{ctx.guild.name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.wav"
         # Create a memory buffer for the audio data
         with io.BytesIO() as audio_buffer:
             # Ensure all audio arrays are padded to the same length
             max_length = max(map(len, all_audio))
             padded_audio = [numpy.pad(audio, (0, max_length - len(audio)), mode='constant') for audio in all_audio]
             # Mix all users' audio by averaging the padded PCM values
-            mixed_audio = numpy.mean(padded_audio, axis=0).astype(numpy.int16)
-            
+            mean_average:numpy.ndarray = numpy.mean(padded_audio, axis=0)
+            mixed_audio = mean_average.astype(numpy.int16)
             # Write the mixed audio to the memory buffer as a .wav file
             with wave.open(audio_buffer, 'wb') as wav_file:
                 wav_file.setnchannels(CHANNELS)  # Stereo
                 wav_file.setsampwidth(2)         # 2 bytes per sample (16-bit PCM)
                 wav_file.setframerate(int(SAMPLE_RATE * pitch))  # Adjust sample rate for pitch
                 wav_file.writeframes(mixed_audio.tobytes())
-            
             # Move to the start of the buffer before sending
             audio_buffer.seek(0)
             file = discord.File(audio_buffer, filename)
             return file
-
     return None
+    ...
 
 #endregion
 
@@ -188,7 +188,7 @@ async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 
 async def PlayAudio(ctx:discord.Interaction, url:str):
     global ytdl, ffmpeg_settings
     # Extract audio information and play
-    voice_client:voice_recv.VoiceRecvClient = ctx.guild.voice_client
+    voice_client:discord.VoiceClient = ctx.guild.voice_client
     try:
         info = ytdl.extract_info(url, download=False)
         info = get_audio_info(info)
