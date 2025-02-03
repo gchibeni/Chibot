@@ -35,11 +35,12 @@ class bot_events(commands.Bot):
             ...
 
         @bot.event
-        async def on_member_join(member):
+        async def on_member_join(member:discord.Member):
             # Responds when a user joins the server.
             channel = discord.utils.get(member.guild.text_channels, name='general')  # Change to your channel name
             if channel:
                 await channel.send(f'Welcome to the server, {member.mention}! Feel free to introduce yourself!')
+            ...
 
         @bot.event
         async def on_message(message: discord.Message):
@@ -59,12 +60,14 @@ class bot_events(commands.Bot):
             else:
                 directed = guild.name
                 # Check if called sync command on guild.
-                if is_owner and content.lower() == "!sync here":
-                    print (f"\n\n{Fore.YELLOW}> SYNCING COMMANDS IN GUILD... ({guild.name}){Fore.RESET}")
+                if is_owner and content.lower().startswith("!sync here"):
+                    force = content.lower().endswith(" force")
+                    force_str = "" if not force else "(FORCING)"
+                    print (f"\n\n{Fore.YELLOW}> {force_str} SYNCING COMMANDS IN GUILD... ({guild.name}){Fore.RESET}")
                     await message.delete()
-                    await sync(guild)
+                    await sync(guild, force)
             # Check if called sync command anywhere.
-            if is_owner and content.lower() == "!sync all":
+            if is_owner and content.lower().startswith("!sync all"):
                 print ("\n\n> SYNCING COMMANDS EVERYWHERE...")
                 await message.delete()
                 await sync()
@@ -80,6 +83,7 @@ class bot_events(commands.Bot):
                 content = '── EMPTY MESSAGE or embedded MESSAGE ── ]]]'
             print(f'⎾ {directed} ||| {channel} ⏋ ⤵')
             print(f'< {author.id} ||| {author.display_name}> <M>: {content}')
+            ...
         
         @bot.event
         async def on_app_command_completion(ctx:discord.Interaction, command:discord.app_commands.Command):
@@ -94,37 +98,49 @@ class bot_events(commands.Bot):
                     print(f'⎾ {guild} ||| {channel} ⏋ ⤵')
                     print(f'< {author.id} ||| {author.display_name}> <C>: Used {command.name} < < < <')
             except: return
-
-        @bot.event
-        async def on_command_error(ctx,error):
-            return
+            ...
         
         @bot.event
         async def on_typing(channel:discord.abc.Messageable, user: discord.User, when: datetime.date):
             #await channel.send("I can see you typing")
             return
+            ...
 
         @bot.event
         async def on_voice_state_update(member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
-            changed_channel = before.channel is not None and after.channel is not None and before.channel != after.channel
+            changed_channel = before.channel is not None and before.channel != after.channel
+            disconnected = after.channel is None
             if member.id == bot.user.id:
-                if changed_channel:
-                    #await voice.Disconnect(before.channel.guild)
+                if changed_channel and not disconnected:
+                    #await voice.ClearRecordData(before.channel.guild, False)
+                    await voice.Disconnect(before.channel.guild)
                     print("Bot - Changed channel.")
+                elif disconnected:
+                    await voice.ClearRecordData(before.channel.guild)
+                    print("Bot - Disconnected from channel.")
+            ...
 
         @bot.event
         async def on_disconnect():
             print(f"\n{Fore.RED}─── DISCONECTED ───\n")
             ...
         
-        async def sync(guild:discord.Guild = None):
+        async def sync(guild:discord.Guild = None, force:bool = False):
             if guild is not None:
+                # Sync commands locally.
+                if force:
+                    commands = await bot.tree.fetch_commands(guild=guild)
+                    print(f"{Fore.YELLOW}> Waiting to reset {len(commands)} commands...{Fore.RESET}\n\n")
+                    for command in commands:
+                        await command.delete()
                 bot.tree.copy_global_to(guild=guild)
                 synced = await bot.tree.sync(guild=guild)
             else:
+                # Sync commands globally.
                 synced = await bot.tree.sync()
+            # Show confirmation.
             try:
                 print(f"{Fore.YELLOW}> Successfully synced {len(synced)} commands.{Fore.RESET}\n\n")
-                #for command in synced: print(f" - {command.name}: {command.description}")
             except Exception as e:
                 print(f"{Fore.RED}> Could not sync commands.\nError: {e}{Fore.RESET}\n\n")
+            ...
