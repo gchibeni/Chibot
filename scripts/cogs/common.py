@@ -215,7 +215,7 @@ class commands_common(commands.Cog):
     @guild_only()
     @describe(seconds="-")
     @describe(pitch="-")
-    async def replay(self, ctx:discord.Interaction, seconds:int = 15, pitch:Range[int, 0, 2] = 1):
+    async def replay(self, ctx:discord.Interaction, seconds:int = 15, pitch:Range[float, 0, 2] = 1):
         # TODO: Limit how many times the guild can use the replay command per second (1/2s).        
         await ctx.response.defer(thinking=True, ephemeral=True)
         # Try to connect to voice channel.

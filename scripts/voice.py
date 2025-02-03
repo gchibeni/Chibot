@@ -19,7 +19,7 @@ BUFFER_DURATION = 30  # Duration of the buffer in seconds
 SAMPLE_RATE = 48000  # Discord uses 48kHz
 CHANNELS = 2  # Stereo audio
 BYTES_PER_SAMPLE = 2  # 16-bit PCM (2 bytes per sample)
-BUFFER_SIZE = BUFFER_DURATION * SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE
+BUFFER_SIZE = BUFFER_DURATION * 1000
 
 ffmpeg_settings = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -43,87 +43,74 @@ ytdl_settings = {
 ytdl = yt_dlp.YoutubeDL(ytdl_settings)
 
 
-class RecordData:
+class RecordData():
     def __init__(self):
         self.start_timestamp = time.time()
-        self.final_segment = AudioSegment.silent(duration=0, frame_rate=SAMPLE_RATE)
-        self.segments:dict[discord.User, collections.deque] = {}
+        self.segments:dict[discord.User, AudioSegment] = {}
         self.timestamps:dict[discord.User, float] = {}
         ...
 
     def AddChunk(self, user: discord.User, pcm_data: bytes):
-        # Initialize circular buffer for each user
-        timestamp = time.time()
-        # Initialize user buffers.
-        if user not in self.timestamps:
-            self.segments[user] = deque(maxlen=BUFFER_SIZE)
+        """
+        Increment received audio chunk to user buffer.
+        """
+        # Initialize buffer for each user.
+        if user not in self.segments:
+            self.segments[user] = AudioSegment.silent(duration=0, frame_rate=SAMPLE_RATE)
             self.timestamps[user] = self.start_timestamp
-        # Fetch elapsed time.
-        current_time = timestamp
-        elapsed_time = current_time - self.timestamps[user]
-        self.timestamps[user] = current_time
-        # Expected frame size based on elapsed time
-        expected_frame_count = int(SAMPLE_RATE * elapsed_time * CHANNELS)
-        actual_frame_count = len(pcm_data) // BYTES_PER_SAMPLE
-        # Add silence only if a significant gap is detected
-        silence_frame_count = max(0, expected_frame_count - actual_frame_count)
-        threshold_frame_count = int(0.02 * SAMPLE_RATE * CHANNELS)
-        if silence_frame_count > threshold_frame_count:
-            silence_chunk = b'\x00' * silence_frame_count * BYTES_PER_SAMPLE
-            self.segments[user].extend(silence_chunk)
-        # Append actual audio data
-        self.segments[user].extend(pcm_data)
+        # Get elapsed time.
+        last_timestamp = self.timestamps[user]
+        elapsed_time = min((time.time() - last_timestamp) * 1000, BUFFER_SIZE)
+        # Generate audio chunk.
+        audio_chunk = AudioSegment(pcm_data, sample_width=BYTES_PER_SAMPLE, frame_rate=SAMPLE_RATE, channels=CHANNELS)
+        silence = AudioSegment.silent(duration=elapsed_time, frame_rate=SAMPLE_RATE)
+        # Add silence if threshold is crossed.
+        threshold = int(20 * CHANNELS) # 20ms
+        if len(silence) > threshold:
+            audio_chunk = silence + audio_chunk
+        # Update user buffer.
+        self.segments[user] += audio_chunk
+        if len(self.segments[user]) > BUFFER_SIZE:
+            # Optimize and limit user's buffer size.
+            self.segments[user] = self.segments[user][-BUFFER_SIZE:]
+        # Update user's last timestamp.
+        self.timestamps[user] = time.time()
         ...
 
-    def FinalAudio(self, seconds, pitch, filename):
-        timestamp = time.time()
-        # Validate pitch bounds
-        pitch = max(0.5, min(pitch, 1.5))
-        # Number of samples to keep for the specified duration
-        requested_samples = SAMPLE_RATE * CHANNELS * seconds
-        max_recorded_samples = max(len(bytes(buffer)) // BYTES_PER_SAMPLE for buffer in self.segments.values())
-        num_samples_to_keep = min(requested_samples, max_recorded_samples)
-        # Process the last specified length of audio for every user
-        all_audio = []
-        for user, buffer in self.segments.items():
-            # Check final silence elapsed time
-            current_time = timestamp
-            elapsed_time = current_time - self.timestamps[user]
-            expected_silence_count = int(SAMPLE_RATE * elapsed_time * CHANNELS)
-            # Add final silence padding.
-            silence_chunk = b'\x00' * expected_silence_count * BYTES_PER_SAMPLE
-            buffer.extend(silence_chunk)
-            # Convert the buffer to a numpy array
-            pcm_data = numpy.frombuffer(bytes(buffer), dtype=numpy.int16)
-            # Pad or trim to the last `num_samples_to_keep` samples
-            if len(pcm_data) > num_samples_to_keep:
-                pcm_data = pcm_data[-num_samples_to_keep:]
-            else:
-                # Add silence if needed to match length
-                silence_samples = num_samples_to_keep - len(pcm_data)
-                pcm_data = numpy.pad(pcm_data, (0, silence_samples), mode='constant')
-            all_audio.append(pcm_data)
-        # Mix all users' audio by averaging PCM values
-        if all_audio:
-            # Create a memory buffer for the audio data
-            with io.BytesIO() as audio_buffer:
-                # Ensure all audio arrays are padded to the same length
-                max_length = max(map(len, all_audio))
-                padded_audio = [numpy.pad(audio, (0, max_length - len(audio)), mode='constant') for audio in all_audio]
-                # Mix all users' audio by averaging the padded PCM values
-                mean_average:numpy.ndarray = numpy.mean(padded_audio, axis=0)
-                mixed_audio = mean_average.astype(numpy.int16)
-                # Write the mixed audio to the memory buffer as a .wav file
-                with wave.open(audio_buffer, 'wb') as wav_file:
-                    wav_file.setnchannels(CHANNELS)  # Stereo
-                    wav_file.setsampwidth(2)         # 2 bytes per sample (16-bit PCM)
-                    wav_file.setframerate(int(SAMPLE_RATE * pitch))  # Adjust sample rate for pitch
-                    wav_file.writeframes(mixed_audio.tobytes())
-                # Move to the start of the buffer before sending
-                audio_buffer.seek(0)
-                file = discord.File(audio_buffer, filename)
-                return file
-        return None
+    def FinalAudio(self, seconds: int = 5, pitch: float = 1):
+        """
+        Generate final audio file.
+        """
+        # Initialize output buffer.
+        output_buffer = io.BytesIO()
+        # Generate base audio segment for final audio.
+        elapsed_time = min((time.time() - self.start_timestamp) * 1000, BUFFER_SIZE)
+        combined_audio = AudioSegment.silent(duration=elapsed_time, frame_rate=SAMPLE_RATE)
+        # Merge and overlay each user's buffer.
+        for user, segment in self.segments.items():
+            # Generate remaining final silence chunk.
+            user_elapsed_time = min((time.time() - self.timestamps[user]) * 1000, BUFFER_SIZE)
+            silence = AudioSegment.silent(duration=user_elapsed_time, frame_rate=SAMPLE_RATE)
+            # Generate audio padded with silence.
+            padded_audio = segment + silence
+            if len(padded_audio) > BUFFER_SIZE:
+                # Optimize and limit user's buffer size.
+                padded_audio = padded_audio[-BUFFER_SIZE:]
+            # Overlay buffers together.
+            combined_audio = combined_audio.overlay(padded_audio, position=0)
+        # Apply pitch if specified.
+        if pitch != 1:
+            combined_audio = combined_audio._spawn(combined_audio.raw_data, overrides={
+                "frame_rate": int(combined_audio.frame_rate * pitch)
+            }).set_frame_rate(SAMPLE_RATE)
+        # Trim audio to specified duration in milliseconds.
+        duration = seconds * 1000
+        if len(combined_audio) > duration:
+            combined_audio = combined_audio[-duration:]
+        # Export and return final result.
+        combined_audio.export(output_buffer, format="wav")
+        output_buffer.seek(0)
+        return output_buffer
         ...
 
 record_data:dict[str, RecordData] = {}
@@ -179,27 +166,31 @@ async def Disconnect(guild:discord.Guild) -> bool:
     return True
     ...
 
+#endregion
+
+#region Replay
+
+def RecorderCallback(user: discord.User, data: VoiceData):
+    try:
+        record_data[data.source.guild.id].AddChunk(user, data.pcm)
+    except:
+        print("Voice - Error performing recorder callback.")
+
+async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 1) -> discord.File:
+    global record_data
+    clean_guild_name = re.sub(r'[^a-zA-Z0-9]', '', ctx.guild.name)
+    filename = f"Rec_{clean_guild_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+    audio_buffer = record_data[ctx.guild_id].FinalAudio(seconds, pitch)
+    file = discord.File(audio_buffer, filename)
+    return file
+    ...
+
 async def ClearRecordData(guild:discord.Guild, disconnected:bool = True):
     # Clear guild recorded voice bytes to preserve memory.
     #voice_client:VoiceRecvClient = guild.voice_client
     #voice_client.stop_listening() # Needs to stop listening when changing channels as not to cause errors.
     #voice_client.listen(BasicSink(RecorderCallback)) # Needs to start listening again after finishing reconnecting.
     record_data[guild.id] = None if disconnected else RecordData()
-    ...
-
-def RecorderCallback(user: discord.User, data: VoiceData):
-    record_data[data.source.guild.id].AddChunk(user, data.pcm)
-
-#endregion
-
-#region Replay
-
-async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 1) -> discord.File:
-    global record_data
-    clean_guild_name = re.sub(r'[^a-zA-Z0-9]', '', ctx.guild.name)
-    filename = f"Rec_{clean_guild_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-    file = record_data[ctx.guild_id].FinalAudio(seconds, pitch, filename)
-    return file
     ...
 
 #endregion
