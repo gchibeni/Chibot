@@ -425,36 +425,5 @@ async def on_message(message : hikari.GuildMessageCreateEvent):
                 # Randomly send final response message.
                 finalresp = random.choice(resps)
                 await bot.rest.create_message(channel, f'{finalresp}')
-    
-    if guild.id in guildvb:
-        soundboard = get_guild_info(guild.id, 'soundboard_enabled')
-        if soundboard == 'true':
-            soundtriggers = get_guild_info(guild.id, 'sound_triggers')
-            if soundtriggers and content:
-                for trigger in soundtriggers:
-                    # Common variables.
-                    complete = []; words1 = []; words2 = []
-                    # Get triggers and responses.
-                    triggers = trigger.split('|')
-                    sound = soundtriggers[trigger]
-                    soundpath = f'{guild.id}/{sound}'
-                    # Get trigger type.
-                    for word in triggers:
-                        if word.startswith('any:'): words1.append(word.removeprefix('any:'))
-                        elif word.startswith('sec:'): words2.append(word.removeprefix('sec:'))
-                        else: complete.append(word)
-                    # Variables to check if triggers are in the message.
-                    cany = any(x in content.lower() for x in words1)
-                    csec = any(x in content.lower() for x in words2)
-                    ccomp = any(x == content.lower() for x in complete)
-                    # Check combination to see if its possible.
-                    if (cany and not words2) or (cany and csec and words1 and words2) or ccomp:
-                        # Play sound if bot is in voice channel.
-                        await play_audio(guild.id, soundpath)
-
-    # Print user action and messages for debugging purposes.
-    if not content: content = '── EMPTY MESSAGE or embedded MESSAGE ── ]]]'
-    print(f'⎾ {guild.name} ||| {channel} ⏋ ⤵')
-    print(f'< {author.id} ||| {author.username}> <M>: {content}')
 
 #endregion

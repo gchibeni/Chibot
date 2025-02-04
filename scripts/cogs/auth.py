@@ -20,7 +20,7 @@ class commands_auth(commands.Cog):
 #region Commands
 
     # AUTHY ────────────────
-    @command(name="auth", description = settings.Localize("auth_description"))
+    @command(name="auth", description = settings.Localize("cmd_auth"))
     async def authy(self, ctx: discord.Interaction):
         await ctx.response.send_message(view=AuthView(ctx), ephemeral=True, delete_after=840)
 
@@ -38,9 +38,9 @@ class AuthView(View):
         if warning is not None:
             warning_button = Button(label=warning, style=discord.ButtonStyle.grey, row=1, disabled=True)
             self.add_item(warning_button)
-        select_view = Select(placeholder="SELECT AUTH", row=2)
-        add_button = Button(label="ADD", style=discord.ButtonStyle.green, row=3)
-        remove_button = Button(label="REMOVE", style=discord.ButtonStyle.red, row=3)
+        select_view = Select(placeholder=settings.Localize("lbl_auth_select"), row=2)
+        add_button = Button(label=settings.Localize("lbl_auth_add"), style=discord.ButtonStyle.green, row=3)
+        remove_button = Button(label=settings.Localize("lbl_auth_remove"), style=discord.ButtonStyle.red, row=3)
         # Fetch authenticators.
         auths = settings.GetInfo(key_id, "authenticators")
         def reload_auths():
@@ -67,25 +67,24 @@ class AuthView(View):
                     auth_code = totp.now()
                     time_remaining = totp.interval - (time.time() % totp.interval)
                     time_stamp = int(time.time() + time_remaining)
-                    #embedded = discord.Embed(description=f"`{option.label}`  ➜  `{auth_code}`\n-# Expiration • <t:{time_stamp}:R>")
                     select_view.placeholder = f"{option.label}  ➜  {auth_code}"
-                    embedded = discord.Embed(description=f"-# Expiration • <t:{time_stamp}:R>")
+                    embedded = discord.Embed(description=settings.Localize("lbl_auth_expiration", time_stamp))
             if warning:
                 self.remove_item(warning_button)
             reload_auths()
             await interaction.response.edit_message(embed=embedded, view=self)
 
         async def add_callback(interaction:discord.Interaction):
-            add_modal = AddAuthModal(ctx, title=settings.Localize("auth_add_title"))
+            add_modal = AddAuthModal(ctx, title=settings.Localize("mdl_auth_add_title"))
             await interaction.response.send_modal(add_modal)
 
         async def remove_callback(interaction:discord.Interaction):
             if select_view.values:
                 selected_auth = select_view.values[0]
-                remove_modal = RemoveAuthModal(ctx, selected_auth, title=settings.Localize("auth_add_title"))
+                remove_modal = RemoveAuthModal(ctx, selected_auth, title=settings.Localize("mdl_auth_remove_title"))
                 await interaction.response.send_modal(remove_modal)
             else:
-                await interaction.response.edit_message(embed=None, view=AuthView(ctx,warning=settings.Localize("auth_not_selected")))
+                await interaction.response.edit_message(embed=None, view=AuthView(ctx,warning=settings.Localize("lbl_item_none_selected")))
         
         # Set callbacks.
         select_view.callback = select_callback
@@ -106,28 +105,28 @@ class AddAuthModal(Modal):
         self.key_id = f"user-{ctx.user.id}" if self.is_private else ctx.guild_id
     
     # Create inputs.
-    name_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("auth_m_name_label"), required=True, placeholder="----", min_length=3, max_length=10)
-    desc_input = TextInput(style=discord.TextStyle.paragraph, label=settings.Localize("auth_m_desc_label"), required=False, placeholder="----", max_length=35)
-    secret_input = TextInput( style=discord.TextStyle.short, label=settings.Localize("auth_m_secret_label"), required=True, placeholder="---- ---- ---- ---- ---- ---- ---- ----", min_length=16, max_length=64)
+    name_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_auth_add_name"), required=True, min_length=3, max_length=10)
+    desc_input = TextInput(style=discord.TextStyle.paragraph, label=settings.Localize("mdl_auth_add_desc"), required=False, max_length=35)
+    secret_input = TextInput( style=discord.TextStyle.short, label=settings.Localize("mdl_auth_add_secret"), required=True, placeholder="---- ---- ---- ---- ---- ---- ---- ----", min_length=16, max_length=64)
 
     async def on_submit(self, interaction: discord.Interaction):
-        input_name = str(self.children[0].value).upper()
-        input_desc = str(self.children[1].value)
-        input_secret = str(self.children[2].value).lower().replace(" ", "")
+        input_name = self.name_input.value.upper()
+        input_desc = self.desc_input.value
+        input_secret = self.secret_input.value.lower().replace(" ", "")
         limit = settings.AUTH_LIMIT
         # Check if auth code is valid.
         if not settings.isValidAuth(input_secret):
-            await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("auth_invalid_code")))
+            await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("lbl_invalid_code")))
             return
         # Check guild limit.
         auth_count = settings.GetInfo(self.key_id, "authenticators")
         if auth_count and len(auth_count) >= limit:
-            await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("auth_limit", input_name, limit)))
+            await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("lbl_limit_reached", limit)))
             return
         # Add auth to guild list.
         auth_data = { "secret":input_secret, "description":input_desc }
         settings.SetInfo(self.key_id, f"authenticators/{input_name}", auth_data)
-        await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("auth_added", input_name)))
+        await interaction.response.edit_message(view=AuthView(self.ctx, settings.Localize("lbl_item_added", input_name)))
         ...
 
 class RemoveAuthModal(Modal):
@@ -139,9 +138,9 @@ class RemoveAuthModal(Modal):
         self.key_id = f"user-{ctx.user.id}" if self.is_private else ctx.guild_id
     
     # Create inputs.
-    confirm_label= settings.Localize("auth_m_remove_label")
-    confirm_text = settings.Localize("auth_m_confirm")
-    confirm_input = discord.ui.TextInput(style=discord.TextStyle.short, label=confirm_label, required=True, placeholder=confirm_text, min_length=len(confirm_text), max_length=len(confirm_text))
+    confirm_text = settings.Localize("lbl_confirm")
+    confirm_label= settings.Localize("lbl_type_confirmation", confirm_text)
+    confirm_input = discord.ui.TextInput(style=discord.TextStyle.short, label=confirm_label, required=True, min_length=len(confirm_text), max_length=len(confirm_text))
 
     async def on_submit(self, interaction: discord.Interaction):
         # Get variables.
@@ -149,16 +148,16 @@ class RemoveAuthModal(Modal):
         selected_auth = self.selected_auth
         # Check if confirmation was correct.
         if confirm_input != self.confirm_text.lower():
-            await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("auth_wrong_confirmation")))
+            await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("lbl_wrong_confirmation")))
             return
         #Check if any auth was found.
         auth:str = settings.GetInfo(self.key_id, f"authenticators/{selected_auth}")
         if auth is None:
-            await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("auth_not_found", selected_auth)))
+            await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("lbl_item_not_found", selected_auth)))
             return
         # Delete matching auth.
         settings.SetInfo(self.key_id, f"authenticators/{selected_auth}", None)
-        await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("auth_removed", selected_auth)))
+        await interaction.response.edit_message(embed=None, view=AuthView(self.ctx, settings.Localize("lbl_item_removed", selected_auth)))
         ...
 
 #endregion

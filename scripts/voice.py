@@ -1,32 +1,26 @@
 from scripts import settings
 import yt_dlp
-import wave
-import os
 import io
-import numpy
 import time
 import discord
 from datetime import datetime
-from collections import deque
 from discord.ext.voice_recv import VoiceData, VoiceRecvClient, BasicSink
-import collections
 import re
 from pydub import AudioSegment
 
 #region Global
 
-BUFFER_DURATION = 30  # Duration of the buffer in seconds
-SAMPLE_RATE = 48000  # Discord uses 48kHz
-CHANNELS = 2  # Stereo audio
-BYTES_PER_SAMPLE = 2  # 16-bit PCM (2 bytes per sample)
-BUFFER_SIZE = BUFFER_DURATION * 1000
+BUFFER_DURATION = 30 # Duration of the buffer in seconds.
+BUFFER_SIZE = BUFFER_DURATION * 1000 # Duration of the buffer in milliseconds.
+SAMPLE_RATE = 48000  # Discord uses 48kHz.
+CHANNELS = 2  # Stereo audio.
+BYTES_PER_SAMPLE = 2  # 16-bit PCM (2 bytes per sample).
 
 ffmpeg_settings = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn -bufsize 8192",  # No video, set buffer size
 }
 
-# Configure youtube_dl to get audio from URL
 ytdl_settings = {
     "format": "bestaudio/best",  # Get the best available audio format
     "quiet": True,  # Suppress output to the console
@@ -42,18 +36,21 @@ ytdl_settings = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_settings)
 
+class MediaData():
+    def __init__(self, title:str):
+        self.title:str = title
+        ...
 
-class RecordData():
+class GuildData():
     def __init__(self):
         self.start_timestamp = time.time()
         self.segments:dict[discord.User, AudioSegment] = {}
         self.timestamps:dict[discord.User, float] = {}
+        self.queue:list[MediaData] = []
         ...
-
-    def AddChunk(self, user: discord.User, pcm_data: bytes):
-        """
-        Increment received audio chunk to user buffer.
-        """
+    
+    def AddReplayChunk(self, user: discord.User, pcm_data: bytes):
+        """Increment received replay chunk to user buffer."""
         # Initialize buffer for each user.
         if user not in self.segments:
             self.segments[user] = AudioSegment.silent(duration=0, frame_rate=SAMPLE_RATE)
@@ -77,10 +74,8 @@ class RecordData():
         self.timestamps[user] = time.time()
         ...
 
-    def FinalAudio(self, seconds: int = 5, pitch: float = 1):
-        """
-        Generate final audio file.
-        """
+    def GetReplay(self, seconds: int = 15, pitch: float = 1):
+        """Generate replay audio file."""
         # Initialize output buffer.
         output_buffer = io.BytesIO()
         # Generate base audio segment for final audio.
@@ -113,7 +108,7 @@ class RecordData():
         return output_buffer
         ...
 
-record_data:dict[str, RecordData] = {}
+guild_data:dict[str, GuildData] = {}
 
 #endregion
 
@@ -122,7 +117,7 @@ record_data:dict[str, RecordData] = {}
 async def Connect(ctx:discord.Interaction, force:bool = False):
     """Connects to the user's current channel and start listening ports."""
     # Initialize variables.
-    global record_data
+    global guild_data
     # Check if already connected to any guild's voice channel.
     voice_client:discord.VoiceClient = ctx.guild.voice_client
     connected = voice_client and voice_client.is_connected()
@@ -141,7 +136,7 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     elif connected and force:
         await Disconnect(ctx.guild)
     # Initialize guild buffer
-    record_data[ctx.guild_id] = RecordData()
+    guild_data[ctx.guild_id] = GuildData()
     # Connect to voice channel and start listeners.
     voice_client = await ctx.user.voice.channel.connect(cls=VoiceRecvClient)
     voice_client.listen(BasicSink(RecorderCallback))
@@ -152,7 +147,7 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
 async def Disconnect(guild:discord.Guild) -> bool:
     """Disconnects from a guild channel and stops listening ports."""
     # Initialize variables.
-    global record_data
+    global guild_data
     # Check if already connected to any guild's voice channel.
     voice_client:discord.VoiceClient = guild.voice_client
     # Clear guild recorded voice bytes to preserve memory.
@@ -171,26 +166,29 @@ async def Disconnect(guild:discord.Guild) -> bool:
 #region Replay
 
 def RecorderCallback(user: discord.User, data: VoiceData):
+    """..."""
     try:
-        record_data[data.source.guild.id].AddChunk(user, data.pcm)
+        guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
     except:
         print("Voice - Error performing recorder callback.")
 
-async def SaveReplay(ctx: discord.Interaction, seconds: int = 5, pitch: float = 1) -> discord.File:
-    global record_data
+async def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float = 1) -> discord.File:
+    """..."""
+    global guild_data
     clean_guild_name = re.sub(r'[^a-zA-Z0-9]', '', ctx.guild.name)
     filename = f"Rec_{clean_guild_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-    audio_buffer = record_data[ctx.guild_id].FinalAudio(seconds, pitch)
+    audio_buffer = guild_data[ctx.guild_id].GetReplay(seconds, pitch)
     file = discord.File(audio_buffer, filename)
     return file
     ...
 
 async def ClearRecordData(guild:discord.Guild, disconnected:bool = True):
+    """..."""
     # Clear guild recorded voice bytes to preserve memory.
     #voice_client:VoiceRecvClient = guild.voice_client
     #voice_client.stop_listening() # Needs to stop listening when changing channels as not to cause errors.
     #voice_client.listen(BasicSink(RecorderCallback)) # Needs to start listening again after finishing reconnecting.
-    record_data[guild.id] = None if disconnected else RecordData()
+    guild_data[guild.id] = None if disconnected else GuildData()
     ...
 
 #endregion
@@ -198,6 +196,7 @@ async def ClearRecordData(guild:discord.Guild, disconnected:bool = True):
 #region Play
 
 async def PlayAudio(ctx:discord.Interaction, url:str):
+    """..."""
     global ytdl, ffmpeg_settings
     # Extract audio information and play
     voice_client:discord.VoiceClient = ctx.guild.voice_client
@@ -214,11 +213,13 @@ async def PlayAudio(ctx:discord.Interaction, url:str):
     ...
 
 def OnFinishPlaying(error):
+    """..."""
     # Play next media in queue.
     print(f"\nAUDIO - finished playing.\nErrors: {error}\n")
     ...
 
 def get_audio_info(info):
+    """..."""
     # Find an audio-only format with a valid URL
     if "entries" in info:  # Handle search results
         info = info["entries"][0]

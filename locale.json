@@ -1,98 +1,127 @@
 {
-    "require_connected":
-    {
-        "en":"<arg1>"
-    },
-    "started_recording":
-    {
-        "en":"We have started recording..."
-    },
-    "bot_status":
-    {
-        "en":"This is the bot status: <arg1> <arg2>"
-    },
-    "auth_code":
-    {
-        "en":"Code: <arg1>"
-    },
-    "auth_added":
-    {
-        "en":"-auth_added"
-    },
-    "auth_removed":
-    {
-        "en":"-auth_remove <arg1>"
-    },
-    "auth_found":
-    {
-        "en":"-auth_found `<arg1>`"
-    },
-    "auth_not_found":
-    {
-        "en":"-auth_not_found"
-    },
-    "auth_small_name":
-    {
-        "en":"-auth_small_name"
-    },
-    "auth_big_name":
-    {
-        "en":"-auth_big_name"
-    },
-    "auth_invalid_code":
-    {
-        "en":"-auth_invalid_code"
-    },
-    "auth_limit":
-    {
-        "en":"-auth_limit"
-    },
-    "auth_add_title":
-    {
-        "en":"-auth_add_title"
-    },
-    "auth_name_label":
-    {
-        "en":"-auth_name_label"
-    },
-    "auth_code_label":
-    {
-        "en":"-auth_code_label"
-    },
-    "auth_index_list_label":
-    {
-        "en":"-auth_index_list_label"
-    },
-    "authy_description":
-    {
-        "en":"-authy_description"
-    },
-    "auth_add_description":
-    {
-        "en":"-auth_add_description"
-    },
-    "auth_remove_description":
-    {
-        "en":"-auth_remove_description"
-    },
-    "auth_list_description":
-    {
-        "en":"-auth_list_description"
-    },
-    "auth_name_describe":
-    {
-        "en":"-auth_name_describe"
-    },
-    "auth_code_describe":
-    {
-        "en":"-auth_code_describe"
-    },
-    "anon_m_title":
-    {
-        "en": " Send anonymously"
-    },
-    "anon_m_label":
-    {
-        "en": "Target ➜ <arg1> <arg2>"
-    }
+    "not_connected": { "en":"You must be connected to a voice chat." },
+    "already_connected": { "en":"Bot is already connected to another voice chat." },
+    "connected": { "en":"" },
+    "lbl_hidden": { "en":"Hide command from others." },
+    "lbl_force": { "en":"Force execute action." },
+    "lbl_type_confirmation": { "en":"Type '<arg1>' to finish:" },
+    "lbl_confirm": { "en":"CONFIRM" },
+    "lbl_wrong_confirmation" : { "en":"Wrong confirmation" },
+    
+    "lbl_item_not_found": { "en":"Item not found" },
+    "lbl_item_none_selected": { "en":"No item selected" },
+    "lbl_empty_content": { "en":"Content can't be empty" },
+    "lbl_item_added": { "en":"Item added" },
+    "lbl_item_removed": { "en":"Item removed" },
+    "lbl_limit_reached": { "en": "Limit reached (<arg1>)" },
+    "lbl_attached_file": { "en": "Attached file or image." },
+
+    "lbl_invalid_code": { "en":"Invalid code" },
+    "lbl_invalid_image": { "en": "Invalid image" },
+    "lbl_invalid_image_url": { "en": "Invalid image URL" },
+    "lbl_invalid_url": { "en": "Invalid URL" },
+
+    "cmd_status": { "en":"Shows current bot status." },
+    "lbl_status": { "en":"Current status ➜ <arg1>" },
+
+    "cmd_clear": { "en":"Clear all received direct messages." },
+    "lbl_dm_cleared": { "en":"Messages cleared." },
+
+    "cmd_avatar": { "en":"Fetch a user's avatar." },
+    "cmd_avatar_target": { "en":"Target user." },
+    "lbl_avatar_fetched": { "en":"Avatar ➜ <arg1>" },
+
+    "cmd_anon": { "en":"Send an anonymous message." },
+    "cmd_anon_target": { "en":"Directly message target user." },
+    "mdl_anon_title": { "en":" Send anonymously" },
+    "mdl_anon_target": { "en":"Target ➜ <arg1> <arg2>" },
+    "lbl_anon_sent": { "en":"Message sent anonymously." },
+    "lbl_anon_footer": { "en":"➜ Sent anonymously" },
+
+    "cmd_replay": { "en":"-" },
+    "cmd_replay_seconds": { "en":"-" },
+    "cmd_replay_pitch": { "en":"-" },
+    "lbl_replay_started": { "en":"-" },
+    "lbl_replay_finished": { "en":"-" },
+    "lbl_replay_complete": { "en":"-" },
+    "lbl_replay_failed": { "en":"-" },
+
+    "cmd_flip": { "en":"Flip a coin." },
+    "lbl_flip_title": { "en":"FLIP" },
+    "lbl_flip_display": { "en":"➜  <arg1> flipped <arg2>!" },
+    "lbl_flip_head": { "en":"HEAD" },
+    "lbl_flip_tail": { "en":"TAIL" },
+    "lbl_flip_head_emoji": { "en":"<a:heads:1163294205033062400>" },
+    "lbl_flip_tail_emoji": { "en":"<a:tails:1163293766791204874>" },
+
+    "cmd_roll": { "en":"Roll a die." },
+    "cmd_roll_number": { "en":"Die maximum numbers." },
+    "lbl_roll_title": { "en":"ROLL" },
+    "lbl_roll_display": { "en":"➜  <arg1> rolled a D<arg2>!" },
+
+    "cmd_roulette": { "en":"Play a round of russian roulette." },
+    "lbl_roulette_title": { "en":"SHOOT" },
+    "lbl_roulette_display": { "en":"➜  Russian roulette" },
+    "lbl_roulette_survived": { "en":"➜  <arg1> survived!" },
+    "lbl_roulette_died": { "en":"➜  <arg1> died!" },
+
+    "cmd_auth": { "en":"List authenticators." },
+    "lbl_auth_select": { "en":"SELECT AUTH" },
+    "lbl_auth_add": { "en":"ADD" },
+    "lbl_auth_remove": { "en":"REMOVE" },
+    "lbl_auth_expiration": { "en":"-# Expiration • <t:<arg1>:R>" },
+    "mdl_auth_add_title": { "en":" Add authenticator" },
+    "mdl_auth_add_name": { "en":"Name:" },
+    "mdl_auth_add_desc": { "en":"Description:" },
+    "mdl_auth_add_secret": { "en":"Code:" },
+    "mdl_auth_remove_title": { "en":" Remove authenticator" },
+
+    "cmd_say": { "en":"Build and send a message." },
+    "cmd_say_message": { "en":"Quick text only message." },
+    "cmd_say_attachment": { "en":"Quick attatched file or image." },
+
+    "lbl_say_title": { "en":"SAY" },
+    "lbl_say_message": { "en":"MESSAGE" },
+    "lbl_say_embed": { "en":"EMBED" },
+    "lbl_say_files": { "en":"FILES" },
+    "lbl_say_clear": { "en":"CLEAR" },
+    "lbl_files_instruction": { "en":"Use '/attach' to add files." },
+    "lbl_embed_color": { "en":"SELECT COLOR" },
+    "lbl_embed_author": { "en":"AUTHOR" },
+    "lbl_embed_content": { "en":"CONTENT" },
+    "lbl_embed_footer": { "en":"FOOTER" },
+
+    "mdl_say_title": { "en":" Content builder" },
+    "mdl_say_label": { "en":"Message:" },
+
+    "mdl_embed_author_name": { "en":"Author:" },
+    "mdl_embed_author_website": { "en":"Website:" },
+    "mdl_embed_author_image": { "en":"Avatar URL:" },
+    "mdl_embed_title": { "en":"Title:" },
+    "mdl_embed_description": { "en":"Description:" },
+    "mdl_embed_website": { "en":"Website:" },
+    "mdl_embed_image": { "en":"Image URL:" },
+    "mdl_embed_thumbnail": { "en":"Thumbnail URL:" },
+    "mdl_embed_footer": { "en":"Footer:" },
+    "mdl_embed_footer_icon": { "en":"Icon URL:" },
+
+    "lbl_color_default": { "en":"🔘 DEFAULT" },
+    "lbl_color_red": { "en":"🔴 RED" },
+    "lbl_color_orange": { "en":"🟠 ORANGE" },
+    "lbl_color_yellow": { "en":"🟡 YELLOW" },
+    "lbl_color_green": { "en":"🟢 GREEN" },
+    "lbl_color_blue": { "en":"🔵 BLUE" },
+    "lbl_color_purple": { "en":"🟣 PURPLE" },
+    "lbl_color_brown": { "en":"🟤 BROWN" },
+    "lbl_color_black": { "en":"⚫ BLACK" },
+    "lbl_color_white": { "en":"⚪ WHITE" },
+
+    "cmd_attach": { "en":"Attach files or images to message or builder." },
+
+    "cmd_purge": { "en":"Purge messages. (Excluding pinned messages or with '⭐' or PAST '🚩' reactions)" },
+    "cmd_purge_quantity": { "en":"Quantity of messages to be purged." },
+    "cmd_purge_force": { "en":"Force delete PAST messages with '🚩' reactions." },
+    "lbl_purge_ended": { "en":"Messages cleared." },
+
+    "": { "en":"" }
 }

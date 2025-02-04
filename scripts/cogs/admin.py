@@ -27,11 +27,11 @@ class commands_admin(commands.Cog):
 #region Commands
 
     # SAY ────────────────
-    @command(name="say", description = "Build and send a message.")
+    @command(name="say", description=settings.Localize("cmd_say"), )
     @default_permissions(manage_guild=True)
     @guild_only()
-    @describe(message="Send a quick text only message.")
-    @describe(attachment="Attatched file or image.")
+    @describe(message=settings.Localize("cmd_say_message"))
+    @describe(attachment=settings.Localize("cmd_say_attachment"))
     async def say(self, ctx:discord.Interaction, message:str = "", attachment: discord.Attachment = None):
         global editing_say
         await ctx.response.defer(ephemeral=True)
@@ -75,13 +75,13 @@ class commands_admin(commands.Cog):
         editing_say[ctx.user.id] = { "message":interaction, "content":None, "embed":None, "attachments":[] }
         ...
 
-    @command(name="attach", description = "Force the bot to send the specified message.")
+    @command(name="attach", description=settings.Localize("cmd_attach"))
     @default_permissions(manage_guild=True)
     @guild_only()
-    @describe(attachment1="First attached file or image.")
-    @describe(attachment2="Second attached file or image.")
-    @describe(attachment3="Third attached file or image.")
-    @describe(attachment4="Fourth attached file or image.")
+    @describe(attachment1=settings.Localize("lbl_attached_file"))
+    @describe(attachment2=settings.Localize("lbl_attached_file"))
+    @describe(attachment3=settings.Localize("lbl_attached_file"))
+    @describe(attachment4=settings.Localize("lbl_attached_file"))
     async def attach(self, ctx:discord.Interaction, attachment1: discord.Attachment, attachment2: discord.Attachment = None, attachment3: discord.Attachment = None, attachment4: discord.Attachment = None):
         await ctx.response.defer(ephemeral=True)
         files = []
@@ -128,29 +128,32 @@ class commands_admin(commands.Cog):
             ...
 
     # PURGE ────────────────
-    @command(name="purge", description = "Delete a specified number of messages in order in a channel.")
+    @command(name="purge", description=settings.Localize("cmd_purge"))
     @default_permissions(manage_guild=True, manage_messages=True)
     @guild_only()
-    @describe(quantity="Quantity of messages to be purged")
-    @describe(force="Force delete past marked messages")
+    @describe(quantity=settings.Localize("cmd_purge_quantity"))
+    @describe(force=settings.Localize("cmd_purge_force"))
     async def purge(self, ctx: discord.Interaction, quantity:Range[int,1,250] = 1, force:bool = False):
         await ctx.response.defer(ephemeral=True)
-        # Check function.
-        def check_favorite(message:discord.Message):
+        del_messages:list[discord.Message] = []
+        # Check messages.
+        async for message in ctx.channel.history(limit=quantity):
             isPinned = message.pinned
             isSaved = False
             isMarked = False
             for reaction in message.reactions:
-                if (reaction.emoji == '⭐') or (reaction.emoji == '🍞'): isSaved = True
+                if (reaction.emoji == '⭐'): isSaved = True
                 if (reaction.emoji == '🚩') and not force: isMarked = True
             deleteMessage = not isPinned and not isSaved and not isMarked
-            return deleteMessage
+            if deleteMessage:
+                del_messages.append(message)
+            elif isMarked:
+                break
         # Purge messages.
-        if (quantity <= 0):
-            quantity = 1
-        await ctx.channel.purge(limit=quantity, check=check_favorite, bulk=True)
+        #await ctx.channel.purge(limit=quantity, check=check_favorite, bulk=True)
+        await ctx.channel.delete_messages(del_messages)
         # Send purging confirmation.
-        await ctx.followup.send(settings.Localize("purged_messages", quantity))
+        await ctx.followup.send(settings.Localize("lbl_purge_ended", quantity))
 
     # TODO: Change this to /theme add
     # ADD ICON ────────────────
@@ -217,15 +220,15 @@ class SaySettingsView(View):
         if warning is not None:
             warning_button = Button(label=warning, style=discord.ButtonStyle.grey, row=1, disabled=True)
             self.add_item(warning_button)
-        message_button = Button(label="MESSAGE", style=discord.ButtonStyle.grey, row=3)
-        embed_button = Button(label="EMBED", style=discord.ButtonStyle.grey, row=3)
-        files_button = Button(label="FILES", style=discord.ButtonStyle.grey, row=3)
+        message_button = Button(label=settings.Localize("lbl_say_message"), style=discord.ButtonStyle.grey, row=3)
+        embed_button = Button(label=settings.Localize("lbl_say_embed"), style=discord.ButtonStyle.grey, row=3)
+        files_button = Button(label=settings.Localize("lbl_say_files"), style=discord.ButtonStyle.grey, row=3)
         cancel_button = Button(label="🛑", style=discord.ButtonStyle.red, row=2)
-        display_button = Button(label="SAY", style=discord.ButtonStyle.grey, row=2, disabled=True)
+        display_button = Button(label=settings.Localize("lbl_say_title"), style=discord.ButtonStyle.grey, row=2, disabled=True)
         send_button = Button(label="✅", style=discord.ButtonStyle.green, row=2)
         # Function callbacks.
         async def message_callback(interaction:discord.Interaction):
-            await interaction.response.send_modal(SayMessageModal(title=settings.Localize("say_message_title")))
+            await interaction.response.send_modal(SayMessageModal(title=settings.Localize("mdl_say_title")))
             ...      
         async def embed_callback(interaction:discord.Interaction):
             await interaction.response.edit_message(view=SayEmbeddedView())
@@ -265,7 +268,7 @@ class SaySettingsView(View):
                     # Send the builded message.
                     await interaction.channel.send(content=content, embed=embed, files=files)
                 else:
-                    await interaction.response.edit_message(view=SaySettingsView(settings.Localize("error_empty_content")))
+                    await interaction.response.edit_message(view=SaySettingsView(settings.Localize("lbl_empty_content")))
             except:
                 await interaction.response.defer()
                 ...
@@ -289,9 +292,9 @@ class SayFilesView(View):
         global editing_say
         # Initialize elemenets.
         return_button = Button(label="⬅️", style=discord.ButtonStyle.blurple, row=1)
-        display_button = Button(label="FILES", style=discord.ButtonStyle.grey, row=1, disabled=True)
-        clear_button = Button(label="CLEAR", style=discord.ButtonStyle.grey, row=1)
-        instruction_button = Button(label="Use /attach to add files.", style=discord.ButtonStyle.grey, row=2, disabled=True)
+        display_button = Button(label=settings.Localize("lbl_say_files"), style=discord.ButtonStyle.grey, row=1, disabled=True)
+        clear_button = Button(label=settings.Localize("lbl_say_clear"), style=discord.ButtonStyle.grey, row=1)
+        instruction_button = Button(label=settings.Localize("lbl_files_instruction"), style=discord.ButtonStyle.grey, row=2, disabled=True)
         
         # Function callbacks.
         async def return_callback(interaction:discord.Interaction):
@@ -310,7 +313,7 @@ class SayFilesView(View):
         ...
 
 class SayMessageModal(Modal):
-    message_input = TextInput(style=discord.TextStyle.long, label=settings.Localize("say_m_message_label"), required=False, max_length=2000)
+    message_input = TextInput(style=discord.TextStyle.long, label=settings.Localize("mdl_say_label"), required=False, max_length=2000)
     async def on_submit(self, interaction:discord.Interaction):
         content = self.message_input.value
         editing_say[interaction.user.id]["content"] = content
@@ -327,23 +330,23 @@ class SayEmbeddedView(View):
             self.remove_item(warning_button)
         # Initialize elemenets.
         return_button = Button(label="⬅️", style=discord.ButtonStyle.blurple, row=2)
-        display_button = Button(label="EMBED", style=discord.ButtonStyle.grey, row=2, disabled=True)
-        clear_button = Button(label="CLEAR", style=discord.ButtonStyle.grey, row=2)
-        color_select = Select(placeholder="SELECT COLOR", row=3)
-        author_button = Button(label="AUTHOR", style=discord.ButtonStyle.grey, row=4)
-        content_button = Button(label="CONTENT", style=discord.ButtonStyle.grey, row=4)
-        footer_button = Button(label="FOOTER", style=discord.ButtonStyle.grey, row=4)
+        display_button = Button(label=settings.Localize("lbl_say_embed"), style=discord.ButtonStyle.grey, row=2, disabled=True)
+        clear_button = Button(label=settings.Localize("lbl_say_clear"), style=discord.ButtonStyle.grey, row=2)
+        color_select = Select(placeholder=settings.Localize("lbl_embed_color"), row=3)
+        author_button = Button(label=settings.Localize("lbl_embed_author"), style=discord.ButtonStyle.grey, row=4)
+        content_button = Button(label=settings.Localize("lbl_embed_content"), style=discord.ButtonStyle.grey, row=4)
+        footer_button = Button(label=settings.Localize("lbl_embed_footer"), style=discord.ButtonStyle.grey, row=4)
         # Initialize color options.
-        color_select.add_option(label="🔘 DEFAULT", value="0")
-        color_select.add_option(label="🔴 RED", value="#dd2e44")
-        color_select.add_option(label="🟠 ORANGE", value="#f4900c")
-        color_select.add_option(label="🟡 YELLOW", value="#fdcb58")
-        color_select.add_option(label="🟢 GREEN", value="#78b159")
-        color_select.add_option(label="🔵 BLUE", value="#55acee")
-        color_select.add_option(label="🟣 PURPLE", value="#aa8ed6")
-        color_select.add_option(label="🟤 BROWN", value="#664736")
-        color_select.add_option(label="⚫ BLACK", value="#131313")
-        color_select.add_option(label="⚪ WHITE", value="#eeeeee")
+        color_select.add_option(label=settings.Localize("lbl_color_default"), value="0")
+        color_select.add_option(label=settings.Localize("lbl_color_red"), value="#dd2e44")
+        color_select.add_option(label=settings.Localize("lbl_color_orange"), value="#f4900c")
+        color_select.add_option(label=settings.Localize("lbl_color_yellow"), value="#fdcb58")
+        color_select.add_option(label=settings.Localize("lbl_color_green"), value="#78b159")
+        color_select.add_option(label=settings.Localize("lbl_color_blue"), value="#55acee")
+        color_select.add_option(label=settings.Localize("lbl_color_purple"), value="#aa8ed6")
+        color_select.add_option(label=settings.Localize("lbl_color_brown"), value="#664736")
+        color_select.add_option(label=settings.Localize("lbl_color_black"), value="#131313")
+        color_select.add_option(label=settings.Localize("lbl_color_white"), value="#eeeeee")
         # Function callbacks.
         async def return_callback(interaction:discord.Interaction):
             await interaction.response.edit_message(view=SaySettingsView())
@@ -363,13 +366,13 @@ class SayEmbeddedView(View):
             await interaction.response.edit_message(embed=preview_embedded)
         async def author_callback(interaction:discord.Interaction):
             #editing_say[interaction.user.id]["embed"] = embedded
-            await interaction.response.send_modal(EmbedAuthorModal(title=settings.Localize("say_embed_title")))
+            await interaction.response.send_modal(EmbedAuthorModal(title=settings.Localize("mdl_say_title")))
         async def content_callback(interaction:discord.Interaction):
             #editing_say[interaction.user.id]["embed"] = embedded
-            await interaction.response.send_modal(EmbedContentModal(title=settings.Localize("say_embed_title")))
+            await interaction.response.send_modal(EmbedContentModal(title=settings.Localize("mdl_say_title")))
         async def footer_callback(interaction:discord.Interaction):
             #editing_say[interaction.user.id]["embed"] = embedded
-            await interaction.response.send_modal(EmbedFooterModal(title=settings.Localize("say_embed_title")))
+            await interaction.response.send_modal(EmbedFooterModal(title=settings.Localize("mdl_say_title")))
         # Set callbacks.
         return_button.callback = return_callback
         clear_button.callback = clear_callback
@@ -389,9 +392,9 @@ class SayEmbeddedView(View):
 
 class EmbedAuthorModal(Modal):
     # Author, Website, Avatar URL
-    author_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_author_name_label"), required=False, max_length=256)
-    website_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_author_website_label"), required=False, max_length=1000)
-    avatar_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_author_avatar_url_label"), required=False, max_length=1000)
+    author_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_author_name"), required=False, max_length=256)
+    website_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_author_website"), required=False, max_length=1000)
+    avatar_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_author_image"), required=False, max_length=1000)
     async def on_submit(self, interaction:discord.Interaction):
         # Fetch and clean.
         embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
@@ -405,9 +408,9 @@ class EmbedAuthorModal(Modal):
         # Check errors.
         warning = None
         if website and not settings.GetHTTP(website):
-            warning = settings.Localize("error_embed_invalid_url")
+            warning = settings.Localize("lbl_invalid_url")
         if avatar and not settings.GetHTTP(avatar):
-            warning = settings.Localize("error_embed_invalid_image_url")
+            warning = settings.Localize("lbl_invalid_image_url")
         # Save and send preview embedded.
         editing_say[interaction.user.id]["embed"] = embedded
         preview_embedded = settings.EmbedClean(embedded, True)
@@ -416,11 +419,11 @@ class EmbedAuthorModal(Modal):
 
 class EmbedContentModal(Modal):
     # Title, Description, Website, Image URL, Thumbnail URL
-    title_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_title_label"), required=False, max_length=256)
-    description_input = TextInput(style=discord.TextStyle.long, label=settings.Localize("embed_m_description_label"), required=False, max_length=4000)
-    website_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_website_label"), required=False, max_length=1000)
-    image_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_image_label"), required=False, max_length=1000)
-    thumbnail_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_thumbnail_label"), required=False, max_length=1000)
+    title_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_title"), required=False, max_length=256)
+    description_input = TextInput(style=discord.TextStyle.long, label=settings.Localize("mdl_embed_description"), required=False, max_length=4000)
+    website_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_website"), required=False, max_length=1000)
+    image_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_image"), required=False, max_length=1000)
+    thumbnail_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_thumbnail"), required=False, max_length=1000)
     async def on_submit(self, interaction:discord.Interaction):
         # Fetch and clean.
         embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
@@ -440,9 +443,9 @@ class EmbedContentModal(Modal):
         # Check errors.
         warning = None
         if url and not settings.GetHTTP(url):
-            warning = settings.Localize("error_embed_invalid_url")
+            warning = settings.Localize("lbl_invalid_url")
         if image and not settings.GetHTTP(image, True) or thumbnail and not settings.GetHTTP(thumbnail, True):
-            warning = settings.Localize("error_embed_invalid_image_url")
+            warning = settings.Localize("lbl_invalid_image_url")
         # Save and send preview embedded.
         editing_say[interaction.user.id]["embed"] = embedded
         preview_embedded = settings.EmbedClean(embedded, True)
@@ -451,8 +454,8 @@ class EmbedContentModal(Modal):
 
 class EmbedFooterModal(Modal):
     # Content, Icon URL
-    content_input = TextInput(style=discord.TextStyle.long, label=settings.Localize("embed_m_footer_content_label"), required=False, max_length=2000)
-    icon_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("embed_m_footer_icon_label"), required=False, max_length=1000)
+    content_input = TextInput(style=discord.TextStyle.long, label=settings.Localize("mdl_embed_footer"), required=False, max_length=2000)
+    icon_input = TextInput(style=discord.TextStyle.short, label=settings.Localize("mdl_embed_footer_icon"), required=False, max_length=1000)
     async def on_submit(self, interaction:discord.Interaction):
         # Fetch and clean.
         embedded:discord.Embed = editing_say[interaction.user.id]["embed"]
@@ -465,7 +468,7 @@ class EmbedFooterModal(Modal):
         # Check errors.
         warning = None
         if icon_url and not settings.GetHTTP(icon_url, True):
-            warning = settings.Localize("error_embed_invalid_image_url")
+            warning = settings.Localize("lbl_invalid_image_url")
         # Save and send preview embedded.
         editing_say[interaction.user.id]["embed"] = embedded
         preview_embedded = settings.EmbedClean(embedded, True)

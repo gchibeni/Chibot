@@ -25,7 +25,7 @@ import re
 
 MAINTENANCE = False
 LANG = "en"
-AUTH_LIMIT = 20
+AUTH_LIMIT = 12
 
 #endregion
 

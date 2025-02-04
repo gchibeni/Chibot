@@ -62,10 +62,14 @@ class bot_events(commands.Bot):
                 # Check if called sync command on guild.
                 if is_owner and content.lower().startswith("!sync here"):
                     force = content.lower().endswith(" force")
+                    clear = content.lower().endswith(" clear")
                     force_str = "" if not force else "(FORCING)"
                     print (f"\n\n{Fore.YELLOW}> {force_str} SYNCING COMMANDS IN GUILD... ({guild.name}){Fore.RESET}")
                     await message.delete()
-                    await sync(guild, force)
+                    if not clear:
+                        await sync(guild, force)
+                    else:
+                        await sync_clear(guild)
             # Check if called sync command anywhere.
             if is_owner and content.lower().startswith("!sync all"):
                 print ("\n\n> SYNCING COMMANDS EVERYWHERE...")
@@ -99,12 +103,6 @@ class bot_events(commands.Bot):
                     print(f'< {author.id} ||| {author.display_name}> <C>: Used {command.name} < < < <')
             except: return
             ...
-        
-        @bot.event
-        async def on_typing(channel:discord.abc.Messageable, user: discord.User, when: datetime.date):
-            #await channel.send("I can see you typing")
-            return
-            ...
 
         @bot.event
         async def on_voice_state_update(member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
@@ -118,11 +116,6 @@ class bot_events(commands.Bot):
                 elif disconnected:
                     await voice.ClearRecordData(before.channel.guild)
                     print("Bot - Disconnected from channel.")
-            ...
-
-        @bot.event
-        async def on_disconnect():
-            print(f"\n{Fore.RED}─── DISCONECTED ───\n")
             ...
         
         async def sync(guild:discord.Guild = None, force:bool = False):
@@ -143,4 +136,15 @@ class bot_events(commands.Bot):
                 print(f"{Fore.YELLOW}> Successfully synced {len(synced)} commands.{Fore.RESET}\n\n")
             except Exception as e:
                 print(f"{Fore.RED}> Could not sync commands.\nError: {e}{Fore.RESET}\n\n")
+            ...
+
+        async def sync_clear(guild:discord.Guild = None):
+            if guild is not None:
+                # Sync commands locally.
+                bot.tree.copy_global_to(guild=guild)
+                bot.tree.clear_commands(guild=guild)
+                await bot.tree.sync(guild=guild)
+            else:
+                ...
+            print(f"{Fore.YELLOW}> Successfully cleared guild commands.{Fore.RESET}\n\n")
             ...
