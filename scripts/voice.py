@@ -1,3 +1,4 @@
+import discord.voice_state
 from scripts import settings
 import yt_dlp
 import io
@@ -114,8 +115,8 @@ guild_data:dict[str, GuildData] = {}
 
 #region Connection
 
-async def Connect(ctx:discord.Interaction, force:bool = False):
-    """Connects to the user's current channel and start listening ports."""
+async def TryConnect(ctx:discord.Interaction, force:bool = False):
+    """Try connecting to the user's current channel."""
     # Initialize variables.
     global guild_data
     # Check if already connected to any guild's voice channel.
@@ -135,17 +136,23 @@ async def Connect(ctx:discord.Interaction, force:bool = False):
     # Start reconnection if forced to.
     elif connected and force:
         await Disconnect(ctx.guild)
-    # Initialize guild buffer
-    guild_data[ctx.guild_id] = GuildData()
-    # Connect to voice channel and start listeners.
-    voice_client = await ctx.user.voice.channel.connect(cls=VoiceRecvClient)
-    voice_client.listen(BasicSink(RecorderCallback))
+    # Connect to voice channel.
+    await Connect(ctx.user.voice.channel)
     # Return true if connected successfully.
     return settings.ConditionalMessage(True, "connected")
     ...
 
+async def Connect(channel:discord.VoiceChannel):
+    """Connect to channel and start listening."""
+    # Initialize guild buffer
+    guild_data[channel.guild.id] = GuildData()
+    # Connect to voice channel and start listeners.
+    voice_client = await channel.connect(cls=VoiceRecvClient)
+    voice_client.listen(BasicSink(RecorderCallback))
+    ...
+
 async def Disconnect(guild:discord.Guild) -> bool:
-    """Disconnects from a guild channel and stops listening ports."""
+    """Disconnects from a guild channel and stops listening."""
     # Initialize variables.
     global guild_data
     # Check if already connected to any guild's voice channel.
@@ -182,12 +189,13 @@ async def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float =
     return file
     ...
 
-async def ClearRecordData(guild:discord.Guild, disconnected:bool = True):
+def ClearRecordData(guild:discord.Guild, disconnected:bool = True):
     """..."""
     # Clear guild recorded voice bytes to preserve memory.
-    #voice_client:VoiceRecvClient = guild.voice_client
-    #voice_client.stop_listening() # Needs to stop listening when changing channels as not to cause errors.
-    #voice_client.listen(BasicSink(RecorderCallback)) # Needs to start listening again after finishing reconnecting.
+    voice_client:VoiceRecvClient = guild.voice_client
+    # if voice_client:
+    #     voice_client.stop_listening() # Needs to stop listening when changing channels as not to cause errors.
+    #     voice_client.listen(BasicSink(RecorderCallback)) # Needs to start listening again after finishing reconnecting.
     guild_data[guild.id] = None if disconnected else GuildData()
     ...
 

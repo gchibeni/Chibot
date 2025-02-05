@@ -205,7 +205,7 @@ class commands_common(commands.Cog):
         # TODO: Limit how many times the guild can use the replay command per second (1/5s).
         await ctx.response.defer(thinking=True, ephemeral=True)
         # Try to connect to voice channel.
-        connection = await voice.Connect(ctx)
+        connection = await voice.TryConnect(ctx)
         if not connection:
             # Send error message.
             await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)

@@ -22,7 +22,7 @@ class commands_music(commands.Cog):
     async def play(self, ctx: discord.Interaction, search:str = ""):
         await ctx.response.defer(ephemeral=True)
         # Try to connect to voice channel.
-        connection = await voice.Connect(ctx)
+        connection = await voice.TryConnect(ctx)
         if not connection:
             # Send error message.
             await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)

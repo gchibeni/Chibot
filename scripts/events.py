@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from colorama import Fore, init
 from datetime import datetime
+import asyncio
 
 async def setup(bot: commands.Bot):
     init(autoreset=True)
@@ -13,6 +14,7 @@ async def setup(bot: commands.Bot):
 class bot_events(commands.Bot):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.tasks = {}
         
         @tasks.loop(seconds=1)
         async def check_updates():
@@ -32,14 +34,6 @@ class bot_events(commands.Bot):
             print(f"\n{Fore.GREEN}─── STATUS ───\n> Cogs started: \"{", ".join(cogs)}\"\n> Connected as: \"{bot.user}\"\n──────────────{Fore.RESET}\n")
             check_updates.start()
             await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="🫵"))
-            ...
-
-        @bot.event
-        async def on_member_join(member:discord.Member):
-            # Responds when a user joins the server.
-            channel = discord.utils.get(member.guild.text_channels, name='general')  # Change to your channel name
-            if channel:
-                await channel.send(f'Welcome to the server, {member.mention}! Feel free to introduce yourself!')
             ...
 
         @bot.event
@@ -106,16 +100,64 @@ class bot_events(commands.Bot):
 
         @bot.event
         async def on_voice_state_update(member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
+            guild = member.guild
+            voice_client = guild.voice_client
             changed_channel = before.channel is not None and before.channel != after.channel
             disconnected = after.channel is None
             if member.id == bot.user.id:
+                # Check if bot changed channel.
                 if changed_channel and not disconnected:
-                    #await voice.ClearRecordData(before.channel.guild, False)
-                    await voice.Disconnect(before.channel.guild)
+                    after_copy = after.channel
+                    await voice.Disconnect(guild)
+                    await voice.Connect(after_copy)
                     print("Bot - Changed channel.")
                 elif disconnected:
-                    await voice.ClearRecordData(before.channel.guild)
+                    voice.ClearRecordData(guild)
                     print("Bot - Disconnected from channel.")
+            if voice_client:
+                # Check if bot is alone.
+                bot_channel:discord.VoiceChannel = voice_client.channel
+                user_quantity = len(bot_channel.members)
+                if before.channel and before.channel.id == bot_channel.id and user_quantity == 1:
+                    start_checking(guild)
+                elif after.channel and after.channel.id == bot_channel.id:
+                    if user_quantity == 1:
+                        start_checking(guild) 
+                    else:
+                        stop_checking(guild)
+            ...
+        
+        def start_checking(guild:discord.Guild):
+            """Start checking bot is alone in a voice chat before disconnecting automatically"""
+            if guild not in self.tasks:
+                self.tasks[guild] = None
+            guild_task:asyncio.Task = self.tasks[guild]
+            if guild_task and not guild_task.done():
+                guild_task.cancel()
+                self.tasks[guild] = None
+            else:
+                self.tasks[guild] = asyncio.create_task(check_users(guild))
+
+        def stop_checking(guild:discord.Guild):
+            """Stop checking bot is alone in a voice chat before disconnecting automatically"""
+            if guild not in self.tasks:
+                return
+            guild_task:asyncio.Task = self.tasks[guild]
+            if guild_task:
+                guild_task.cancel()
+                self.tasks[guild] = None
+            ...
+
+        async def check_users(guild:discord.Guild):
+            """Check checking bot is alone in a voice chat before disconnecting automatically"""
+            voice_client = guild.voice_client
+            await asyncio.sleep(15)
+            if voice_client:
+                channel:discord.VoiceChannel = voice_client.channel
+                user_quantity = len(channel.members)
+                if user_quantity == 1:
+                    await voice.Disconnect(guild)
+                    self.tasks[guild] = None
             ...
         
         async def sync(guild:discord.Guild = None, force:bool = False):
