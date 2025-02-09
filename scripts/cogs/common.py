@@ -2,7 +2,7 @@ from scripts import settings, voice
 import discord
 from discord.ext import commands
 from discord import app_commands
-from discord.app_commands import default_permissions, describe, dm_only, guild_only, private_channel_only, command, Range
+from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 from discord.ui import Button, View, Select, Modal
 import random
 
@@ -22,7 +22,23 @@ class commands_common(commands.Cog):
     # STATUS ────────────────
     @app_commands.command(name="status", description = settings.Localize("cmd_status"))
     async def status(self, ctx:discord.Interaction):
-        await ctx.response.send_message(settings.Localize("lbl_status", settings.MAINTENANCE, settings.LANG), ephemeral=True, delete_after=2)
+        await ctx.response.send_message(settings.Localize("lbl_status"), ephemeral=True, delete_after=2)
+        # Create custom command test
+        # Define dynamic parameters
+        dynamic_params = { "arg1": "Dynamic parameter description", "arg2": "Another parameter dynamic description" }
+        # Dynamically create the callback function
+        async def custom_callback(interaction: discord.Interaction, arg1: str, arg2: str):
+            await interaction.response.send_message(f"This test was a success!\n` {arg1} `\n` {arg2} `", ephemeral=True)
+        # Create the dynamic command
+        command_test = discord.app_commands.Command(name="test", description="A dynamic custom command", callback=custom_callback)
+        # Attach parameter descriptions
+        for param_name, param_desc in dynamic_params.items():
+            command_test._params[param_name].description = param_desc
+            command_test._params[param_name]._rename = f"{param_name}test"
+            command_test._params[param_name].required = False
+        self.bot.tree.clear_commands(guild=ctx.guild)
+        self.bot.tree.add_command(command_test, guild=ctx.guild)
+        await self.bot.tree.sync(guild=ctx.guild)
 
     # CLEAR ────────────────
     @command(name="clear", description = settings.Localize("cmd_clear"))
@@ -201,7 +217,8 @@ class commands_common(commands.Cog):
     @guild_only()
     @describe(seconds=settings.Localize("cmd_replay_seconds"))
     @describe(pitch=settings.Localize("cmd_replay_pitch"))
-    async def replay(self, ctx:discord.Interaction, seconds:Range[int,5] = 15, pitch:Range[float, 0, 2] = 1):
+    @describe(hidden=settings.Localize("lbl_hidden"))
+    async def replay(self, ctx:discord.Interaction, seconds:Range[int,5] = 15, pitch:Range[float, 0.0, 2.0] = 1, hidden:bool = False):
         # TODO: Limit how many times the guild can use the replay command per second (1/5s).
         await ctx.response.defer(thinking=True, ephemeral=True)
         # Try to connect to voice channel.
@@ -211,14 +228,18 @@ class commands_common(commands.Cog):
             await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)
             return
         # If just joined, send message that he started recording.
-        if connection.message != "already_connected":
-            await ctx.followup.send(settings.Localize("lbl_replay_started"), ephemeral=True)
+        if not connection.already_connected():
+            await ctx.delete_original_response()
             return
         # Save replay and 
         file = await voice.SaveReplay(ctx, seconds, pitch)
-        await ctx.delete_original_response()
+        #await ctx.delete_original_response()
         if file is not None:
-            await ctx.channel.send(settings.Localize("lbl_replay_complete"), file=file)
+            if not hidden:
+                await ctx.delete_original_response()
+                await ctx.channel.send(settings.Localize("lbl_replay_complete", seconds, pitch), file=file)
+            else:
+                await ctx.followup.send(settings.Localize("lbl_replay_complete", seconds, pitch), file=file, ephemeral=True)
             return
         await ctx.followup.send(settings.Localize("lbl_replay_failed"), ephemeral=True)
 

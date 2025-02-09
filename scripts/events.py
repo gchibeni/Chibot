@@ -1,11 +1,11 @@
 from scripts import settings, voice
 import os
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
 from colorama import Fore, init
-from datetime import datetime
 import asyncio
+
+#region Initialization
 
 async def setup(bot: commands.Bot):
     init(autoreset=True)
@@ -15,7 +15,11 @@ class bot_events(commands.Bot):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.tasks = {}
-        
+
+#endregion
+
+#region Events
+
         @tasks.loop(seconds=1)
         async def check_updates():
             # Foreach server check if there are icon changes.
@@ -114,7 +118,7 @@ class bot_events(commands.Bot):
                 elif disconnected:
                     voice.ClearRecordData(guild)
                     print("Bot - Disconnected from channel.")
-            if voice_client:
+            if voice_client and settings.AUTO_DISCONNECT:
                 # Check if bot is alone.
                 bot_channel:discord.VoiceChannel = voice_client.channel
                 user_quantity = len(bot_channel.members)
@@ -126,7 +130,11 @@ class bot_events(commands.Bot):
                     else:
                         stop_checking(guild)
             ...
-        
+
+#endregion
+
+#region Functions
+
         def start_checking(guild:discord.Guild):
             """Start checking bot is alone in a voice chat before disconnecting automatically"""
             if guild not in self.tasks:
@@ -151,7 +159,7 @@ class bot_events(commands.Bot):
         async def check_users(guild:discord.Guild):
             """Check checking bot is alone in a voice chat before disconnecting automatically"""
             voice_client = guild.voice_client
-            await asyncio.sleep(15)
+            await asyncio.sleep(settings.DISCONNECT_AFTER)
             if voice_client:
                 channel:discord.VoiceChannel = voice_client.channel
                 user_quantity = len(channel.members)
@@ -163,6 +171,7 @@ class bot_events(commands.Bot):
         async def sync(guild:discord.Guild = None, force:bool = False):
             if guild is not None:
                 # Sync commands locally.
+                bot.tree.clear_commands(guild=guild)
                 if force:
                     commands = await bot.tree.fetch_commands(guild=guild)
                     print(f"{Fore.YELLOW}> Waiting to reset {len(commands)} commands...{Fore.RESET}\n\n")
@@ -190,3 +199,5 @@ class bot_events(commands.Bot):
                 ...
             print(f"{Fore.YELLOW}> Successfully cleared guild commands.{Fore.RESET}\n\n")
             ...
+
+#endregion

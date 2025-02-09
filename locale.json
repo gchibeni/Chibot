@@ -38,13 +38,11 @@
     "lbl_anon_sent": { "en":"Message sent anonymously." },
     "lbl_anon_footer": { "en":"➜ Sent anonymously" },
 
-    "cmd_replay": { "en":"-" },
-    "cmd_replay_seconds": { "en":"-" },
-    "cmd_replay_pitch": { "en":"-" },
-    "lbl_replay_started": { "en":"-" },
-    "lbl_replay_finished": { "en":"-" },
-    "lbl_replay_complete": { "en":"-" },
-    "lbl_replay_failed": { "en":"-" },
+    "cmd_replay": { "en":"Generate an audio replay from the connected voice channel." },
+    "cmd_replay_seconds": { "en":"Seconds to replay." },
+    "cmd_replay_pitch": { "en":"Audio pitch effect. (0 slow, 1 normal, 2 quick)" },
+    "lbl_replay_complete": { "en":"Generated a `<arg1> seconds` replay and pitch at `<arg2>`:" },
+    "lbl_replay_failed": { "en":"Failed to save replay." },
 
     "cmd_flip": { "en":"Flip a coin." },
     "lbl_flip_title": { "en":"FLIP" },

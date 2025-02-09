@@ -1,31 +1,25 @@
-import random
 import os
 import json
 import math
 from typing import Union
 import discord
-import yt_dlp
 import pyotp
 import socket
-import asyncio
-import wave
 import os
-import io
-import numpy
 from discord.ext import commands
-from discord import Embed
-from datetime import datetime, timezone, timedelta
-from collections import deque
-import requests
-import urllib
+from datetime import datetime, timedelta
 import re
-
 
 #region Variables
 
-MAINTENANCE = False
-LANG = "en"
-AUTH_LIMIT = 12
+LANG = "en" # Same lang code as on locale.json.
+AUTH_LIMIT = 12 # 25 is discord's list limit.
+TEMPLATE_LIMIT = 24 # 25 is discord's list limit.
+TRIGGER_LIMIT = 24 # 25 is discord's list limit.
+COMMAND_LIMIT = 24 # 25 is discord's list limit.
+THEME_LIMIT = 24 # 25 is discord's list limit.
+AUTO_DISCONNECT = True # Check if alone before auto disconnecting.
+DISCONNECT_AFTER = 15 # Time in seconds before auto disconnecting.
 
 #endregion
 
@@ -217,6 +211,9 @@ def EmbedClean(embed:discord.Embed, check_valid:bool = False) -> discord.Embed:
         new_embed.description = "ㅤ"
     return new_embed
 
+def Remap(value, in_min, in_max, out_min, out_max):
+    return (value - in_min) / (in_max - in_min) * (out_max - out_min) + out_min
+
 #endregion
 
 #region Info
@@ -339,5 +336,11 @@ class ConditionalMessage:
         return self.value
     def __str__(self):
         return self.message
+    def not_connected(self):
+        return self.message == "not_connected"
+    def already_connected(self):
+        return self.message == "already_connected"
+    def connected(self):
+        return self.message == "connected"
 
 #endregion

@@ -44,7 +44,7 @@ class MediaData():
 
 class GuildData():
     def __init__(self):
-        self.start_timestamp = time.time()
+        self.start_timestamp = time.monotonic()
         self.segments:dict[discord.User, AudioSegment] = {}
         self.timestamps:dict[discord.User, float] = {}
         self.queue:list[MediaData] = []
@@ -56,23 +56,25 @@ class GuildData():
         if user not in self.segments:
             self.segments[user] = AudioSegment.silent(duration=0, frame_rate=SAMPLE_RATE)
             self.timestamps[user] = self.start_timestamp
-        # Get elapsed time.
+        # Get elapsed time since the last update in milliseconds.
+        # Limited to the max buffer size.
+        current_timestamp = time.monotonic()
         last_timestamp = self.timestamps[user]
-        elapsed_time = min((time.time() - last_timestamp) * 1000, BUFFER_SIZE)
-        # Generate audio chunk.
+        elapsed_time = min((current_timestamp - last_timestamp) * 1000, BUFFER_SIZE)
+        # Generate audio chunk from PCM data.
         audio_chunk = AudioSegment(pcm_data, sample_width=BYTES_PER_SAMPLE, frame_rate=SAMPLE_RATE, channels=CHANNELS)
-        silence = AudioSegment.silent(duration=elapsed_time, frame_rate=SAMPLE_RATE)
-        # Add silence if threshold is crossed.
-        threshold = int(20 * CHANNELS) # 20ms
-        if len(silence) > threshold:
+        silence = AudioSegment.silent(duration=elapsed_time - len(audio_chunk), frame_rate=SAMPLE_RATE)
+        expected_packet_duration = 20 # In milliseconds (Discord uses 20ms per packet)
+        silence_duration = max(0, len(silence) - len(audio_chunk))
+        # Apply silence if the gap exceeds expected packet duration
+        if silence_duration > expected_packet_duration:
             audio_chunk = silence + audio_chunk
-        # Update user buffer.
+        # Update user buffer and trim if necessary.
         self.segments[user] += audio_chunk
         if len(self.segments[user]) > BUFFER_SIZE:
-            # Optimize and limit user's buffer size.
             self.segments[user] = self.segments[user][-BUFFER_SIZE:]
-        # Update user's last timestamp.
-        self.timestamps[user] = time.time()
+        # Update the timestamp for this user.
+        self.timestamps[user] = current_timestamp
         ...
 
     def GetReplay(self, seconds: int = 15, pitch: float = 1):
@@ -80,12 +82,12 @@ class GuildData():
         # Initialize output buffer.
         output_buffer = io.BytesIO()
         # Generate base audio segment for final audio.
-        elapsed_time = min((time.time() - self.start_timestamp) * 1000, BUFFER_SIZE)
+        elapsed_time = min((time.monotonic() - self.start_timestamp) * 1000, BUFFER_SIZE)
         combined_audio = AudioSegment.silent(duration=elapsed_time, frame_rate=SAMPLE_RATE)
         # Merge and overlay each user's buffer.
         for user, segment in self.segments.items():
             # Generate remaining final silence chunk.
-            user_elapsed_time = min((time.time() - self.timestamps[user]) * 1000, BUFFER_SIZE)
+            user_elapsed_time = min((time.monotonic() - self.timestamps[user]) * 1000, BUFFER_SIZE)
             silence = AudioSegment.silent(duration=user_elapsed_time, frame_rate=SAMPLE_RATE)
             # Generate audio padded with silence.
             padded_audio = segment + silence
@@ -96,6 +98,8 @@ class GuildData():
             combined_audio = combined_audio.overlay(padded_audio, position=0)
         # Apply pitch if specified.
         if pitch != 1:
+            if pitch < 1:
+                pitch = settings.Remap(pitch, 0, 1, 0.5, 1)
             combined_audio = combined_audio._spawn(combined_audio.raw_data, overrides={
                 "frame_rate": int(combined_audio.frame_rate * pitch)
             }).set_frame_rate(SAMPLE_RATE)
@@ -156,13 +160,14 @@ async def Disconnect(guild:discord.Guild) -> bool:
     # Initialize variables.
     global guild_data
     # Check if already connected to any guild's voice channel.
-    voice_client:discord.VoiceClient = guild.voice_client
+    voice_client:VoiceRecvClient = guild.voice_client
     # Clear guild recorded voice bytes to preserve memory.
     ClearRecordData(guild)
     if not voice_client or not voice_client.is_connected():
         # Return false if already not connected.
         return False
     # Disconnect from voice channel.
+    voice_client.stop_listening()
     await voice_client.disconnect()
     # Return true if disconnected successfully.
     return True
@@ -174,14 +179,16 @@ async def Disconnect(guild:discord.Guild) -> bool:
 
 def RecorderCallback(user: discord.User, data: VoiceData):
     """..."""
-    try:
-        guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
-    except:
-        print("Voice - Error performing recorder callback.")
+    guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
+    # try:
+    #     guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
+    # except Exception as ex:
+    #     print(f"Voice - Error performing recorder callback.\n{ex}")
 
 async def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float = 1) -> discord.File:
     """..."""
     global guild_data
+    pitch = max(pitch, 0.1)
     clean_guild_name = re.sub(r'[^a-zA-Z0-9]', '', ctx.guild.name)
     filename = f"Rec_{clean_guild_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
     audio_buffer = guild_data[ctx.guild_id].GetReplay(seconds, pitch)
@@ -192,10 +199,6 @@ async def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float =
 def ClearRecordData(guild:discord.Guild, disconnected:bool = True):
     """..."""
     # Clear guild recorded voice bytes to preserve memory.
-    voice_client:VoiceRecvClient = guild.voice_client
-    # if voice_client:
-    #     voice_client.stop_listening() # Needs to stop listening when changing channels as not to cause errors.
-    #     voice_client.listen(BasicSink(RecorderCallback)) # Needs to start listening again after finishing reconnecting.
     guild_data[guild.id] = None if disconnected else GuildData()
     ...
 
