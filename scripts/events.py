@@ -1,6 +1,7 @@
-from scripts import settings, voice
+from scripts import settings, voice, elements
 import os
 import discord
+from discord.ui import View, Button, Select
 from discord.ext import commands, tasks
 from colorama import Fore, init
 import asyncio
@@ -129,6 +130,43 @@ class bot_events(commands.Bot):
                         start_checking(guild) 
                     else:
                         stop_checking(guild)
+            ...
+
+        @bot.event
+        async def on_interaction(interaction:discord.Interaction):
+            custom_id = interaction.data.get("custom_id")
+            if not custom_id:
+                return
+            if custom_id.startswith("lock"):
+                # Lock interaction.
+                view = View.from_message(interaction.message)
+                for item in view.children[:]:
+                    if isinstance(item, Button) or isinstance(item, Select):
+                        if item.custom_id == "lock":
+                            view.remove_item(item)
+                        else:
+                            item.disabled = True
+                await interaction.response.edit_message(view=view)
+            if custom_id.startswith("flip"):
+                await interaction.response.edit_message(view=elements.FlipView(interaction))
+                print("flip called")
+            if custom_id.startswith("roll"):
+                # Roll interaction.
+                await interaction.response.edit_message(view=elements.RollView(interaction, number=20))
+            if custom_id.startswith("roulette"):
+                print("roulette called")
+            if custom_id.startswith("play"):
+                print("play called")
+            if custom_id.startswith("stop"):
+                print("stop called")
+            if custom_id.startswith("next"):
+                print("next called")
+            if custom_id.startswith("prev"):
+                print("prev called")
+            if custom_id.startswith("clear"):
+                print("clear called")
+            if custom_id.startswith("download"):
+                print("download called")
             ...
 
 #endregion

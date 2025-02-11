@@ -20,6 +20,9 @@ COMMAND_LIMIT = 24 # 25 is discord's list limit.
 THEME_LIMIT = 24 # 25 is discord's list limit.
 AUTO_DISCONNECT = True # Check if alone before auto disconnecting.
 DISCONNECT_AFTER = 15 # Time in seconds before auto disconnecting.
+MAX_RECORDING_TIME = 120 # Duration of the recording buffer in seconds.
+
+editing_say = {} # All users editing "say" messages.
 
 #endregion
 

@@ -8,11 +8,11 @@ from datetime import datetime
 from discord.ext.voice_recv import VoiceData, VoiceRecvClient, BasicSink
 import re
 from pydub import AudioSegment
+import random
 
 #region Global
 
-BUFFER_DURATION = 30 # Duration of the buffer in seconds.
-BUFFER_SIZE = BUFFER_DURATION * 1000 # Duration of the buffer in milliseconds.
+BUFFER_SIZE = settings.MAX_RECORDING_TIME * 1000 # Duration of the buffer in milliseconds.
 SAMPLE_RATE = 48000  # Discord uses 48kHz.
 CHANNELS = 2  # Stereo audio.
 BYTES_PER_SAMPLE = 2  # 16-bit PCM (2 bytes per sample).
@@ -38,8 +38,10 @@ ytdl_settings = {
 ytdl = yt_dlp.YoutubeDL(ytdl_settings)
 
 class MediaData():
-    def __init__(self, title:str):
+    def __init__(self, url:str, title:str, time:int):
+        self.url:str = url
         self.title:str = title
+        self.time:int = time
         ...
 
 class GuildData():
@@ -64,10 +66,9 @@ class GuildData():
         # Generate audio chunk from PCM data.
         audio_chunk = AudioSegment(pcm_data, sample_width=BYTES_PER_SAMPLE, frame_rate=SAMPLE_RATE, channels=CHANNELS)
         silence = AudioSegment.silent(duration=elapsed_time - len(audio_chunk), frame_rate=SAMPLE_RATE)
-        expected_packet_duration = 20 # In milliseconds (Discord uses 20ms per packet)
         silence_duration = max(0, len(silence) - len(audio_chunk))
         # Apply silence if the gap exceeds expected packet duration
-        if silence_duration > expected_packet_duration:
+        if silence_duration > 0:
             audio_chunk = silence + audio_chunk
         # Update user buffer and trim if necessary.
         self.segments[user] += audio_chunk
@@ -111,6 +112,41 @@ class GuildData():
         combined_audio.export(output_buffer, format="wav")
         output_buffer.seek(0)
         return output_buffer
+        ...
+
+    def AddQueue(self, url:str, next:bool = False):
+        """Generate and add media to queue."""
+        # Generate media data.
+        media:MediaData = MediaData(url=url)
+        # Insert media to queue.
+        if next:
+            self.queue.insert(0, media)
+        else:
+            self.queue.append(media)
+        # Update music message.
+        self.UpdateMusicMessage()
+        ...
+    
+    def Shuffle(self):
+        """Auto shuffle media queue."""
+        # Shuffle queue.
+        random.shuffle(self.queue)
+        # Update music message.
+        self.UpdateMusicMessage()
+        ...
+    
+    def PlayNext(self):
+        # Update music message.
+        self.UpdateMusicMessage()
+        ...
+    
+    def PlayPrev(self):
+        
+        # Update music message.
+        self.UpdateMusicMessage()
+        ...
+
+    def UpdateMusicMessage(self):
         ...
 
 guild_data:dict[str, GuildData] = {}
@@ -179,11 +215,11 @@ async def Disconnect(guild:discord.Guild) -> bool:
 
 def RecorderCallback(user: discord.User, data: VoiceData):
     """..."""
-    guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
-    # try:
-    #     guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
-    # except Exception as ex:
-    #     print(f"Voice - Error performing recorder callback.\n{ex}")
+    try:
+        if data and data.source and data.source.guild:
+            guild_data[data.source.guild.id].AddReplayChunk(user, data.pcm)
+    except Exception as e:
+        print(f"Voice - Error performing recorder callback.\nErrors: {e}\n")
 
 async def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float = 1) -> discord.File:
     """..."""
