@@ -221,7 +221,7 @@ def RecorderCallback(user: discord.User, data: VoiceData):
     except Exception as e:
         print(f"Voice - Error performing recorder callback.\nErrors: {e}\n")
 
-async def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float = 1) -> discord.File:
+def SaveReplay(ctx: discord.Interaction, seconds: int = 15, pitch: float = 1) -> discord.File:
     """..."""
     global guild_data
     pitch = max(pitch, 0.1)
@@ -275,6 +275,25 @@ def get_audio_info(info):
         if fmt.get("acodec") != "none" and fmt.get("vcodec") == "none":
             return fmt.get("url")
     raise Exception("No valid audio format found.")
+    ...
+
+#endregion
+
+#region Download
+
+def Download(ctx: discord.Interaction, url:str) -> discord.File:
+    """..."""
+    info = ytdl.extract_info(url, download=False)
+    info = get_audio_info(info)
+    audio_url = info["url"]
+    audio_buffer = io.BytesIO()
+    filename = f"{info["title"].replace(" ", "_")}.mp3"
+
+    with ytdl.urlopen(audio_url) as response:
+        audio_buffer.write(response.read())
+    audio_buffer.seek(0)
+    file = discord.File(audio_buffer, filename)
+    return {"file":file, "title":info["title"]}
     ...
 
 #endregion

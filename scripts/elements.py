@@ -44,37 +44,27 @@ class FlipView(View):
         super().__init__(**kwargs)
         # Generate view and first value.
         flipped = random.randint(0, 1)
+        repeated = 1
         def flipped_name(value):
             return settings.Localize("lbl_flip_head") if value == 0 else settings.Localize("lbl_flip_tail")
         def flipped_emoji(value):
             return settings.Localize("lbl_flip_head_emoji") if value == 0 else settings.Localize("lbl_flip_tail_emoji")
-        # Create buttons.
-        flip = Button(label=settings.Localize("lbl_flip_title"), style=discord.ButtonStyle.grey, custom_id=str(ctx.user.id))
-        button = Button(label="", style=discord.ButtonStyle.blurple, emoji=flipped_emoji(flipped), custom_id=flipped_name(flipped))
-        display = Button(label=settings.Localize("lbl_flip_display", ctx.user.display_name, flipped_name(flipped)), style=discord.ButtonStyle.grey, custom_id="0")
-        lock = Button(label="", style=discord.ButtonStyle.grey, emoji="🔒", custom_id="lock")
-        # Set callback functions.
-        async def button_callback(interaction:discord.Interaction):
-            if button.disabled:
-                await interaction.response.defer()
-                return
-            flipped = random.randint(0, 1)
-            repeated = int(display.custom_id) # Repeat count.
-            if flip.custom_id == str(interaction.user.id) and button.custom_id == flipped_name(flipped):
+        # Get old data.
+        data = ctx.data.get("custom_id")
+        if (data and data.startswith("flip")):
+            last_user = data.split("|")[1]
+            last_flipped = data.split("|")[2]
+            repeated = int(data.split("|")[3])
+            if last_user == str(ctx.user.id) and last_flipped == flipped_name(flipped):
                 repeated = repeated + 1
-                button.label = f"x{repeated}"
             else:
-                repeated = 0
-            display.custom_id = str(repeated) # Save repeat count.
-            flip.custom_id = str(interaction.user.id) # Save last user.
-            button.custom_id = flipped_name(flipped) # Save last value.
-            button.label = "" if repeated == 0 else f"x{repeated}"
-            button.emoji = flipped_emoji(flipped)
-            display.label = settings.Localize("lbl_flip_display", interaction.user.display_name, flipped_name(flipped))
-            await interaction.response.edit_message(view=self)
-        # Set button callbacks.
-        flip.callback = button.callback = display.callback = button_callback
-        #lock.callback = lock_callback
+                repeated = 1
+        info = f"{str(ctx.user.id)}|{flipped_name(flipped)}|{repeated}"
+        # Create buttons.
+        flip = Button(label=settings.Localize("lbl_flip_title"), style=discord.ButtonStyle.grey, custom_id=f"flip_1|{info}")
+        button = Button(label="" if repeated <= 1 else f"x{repeated}", style=discord.ButtonStyle.blurple, emoji=flipped_emoji(flipped), custom_id=f"flip_2|{info}")
+        display = Button(label=settings.Localize("lbl_flip_display", ctx.user.display_name, flipped_name(flipped)), style=discord.ButtonStyle.grey, custom_id=f"flip_3|{info}")
+        lock = Button(label="", style=discord.ButtonStyle.grey, emoji="🔒", custom_id="lock")
         # Add buttons.
         self.add_item(flip)
         self.add_item(button)
@@ -86,11 +76,14 @@ class RollView(View):
     def __init__(self, ctx:discord.Interaction, number:int = 20, **kwargs):
         super().__init__(**kwargs)
         # Generate view and first value.
+        data = ctx.data.get("custom_id")
+        if (data and data.startswith("roll")):
+            number = int(data.split("|")[1])
         rolled = random.randint(1, number)
         # Create buttons.
-        roll = Button(label=settings.Localize("lbl_roll_title"), style=discord.ButtonStyle.grey, custom_id="roll_1")
-        button = Button(label=rolled, style=discord.ButtonStyle.blurple, custom_id="roll_2")
-        display = Button(label=settings.Localize("lbl_roll_display", ctx.user.display_name, number), style=discord.ButtonStyle.grey, custom_id="roll_3")
+        roll = Button(label=settings.Localize("lbl_roll_title"), style=discord.ButtonStyle.grey, custom_id=f"roll_1|{number}")
+        button = Button(label=rolled, style=discord.ButtonStyle.blurple, custom_id=f"roll_2|{number}")
+        display = Button(label=settings.Localize("lbl_roll_display", ctx.user.display_name, number), style=discord.ButtonStyle.grey, custom_id=f"roll_3|{number}")
         lock = Button(label="", style=discord.ButtonStyle.grey, emoji="🔒", custom_id="lock")
         # Add buttons.
         self.add_item(roll)
@@ -100,36 +93,29 @@ class RollView(View):
     ...
 
 class RouletteView(View):
-    def __init__(self, **kwargs):
+    def __init__(self, ctx:discord.Interaction, **kwargs):
         super().__init__(**kwargs)
         dead_value = random.randint(0,5)
-        # Create buttons.
-        shoot = Button(label=settings.Localize("lbl_roulette_title"), style=discord.ButtonStyle.grey, custom_id="roulette_1")
-        button = Button(label="6", style=discord.ButtonStyle.blurple, custom_id="roulette_2")
-        dead = Button(label=settings.Localize("lbl_roulette_display"), style=discord.ButtonStyle.grey, custom_id="roulette_3")
-        # Set callback function.
-        async def button_callback(interaction:discord.Interaction):
-            if button.disabled:
-                await interaction.response.defer()
-                return
-            button_value = int(button.label) - 1
-            if (dead_value == button_value):
-                button.label = "☠️"
-                dead.label = settings.Localize("lbl_roulette_died", interaction.user.display_name)
-                button.style = discord.ButtonStyle.danger
-                button.disabled = True
-                shoot.disabled = True
-                dead.disabled = True
+        bullet = 6
+        display_label = settings.Localize("lbl_roulette_display")
+        data = ctx.data.get("custom_id")
+        if (data and data.startswith("roulette")):
+            dead_value = int(data.split("|")[1])
+            bullet = int(data.split("|")[2]) - 1
+            if bullet <= dead_value:
+                display_label = settings.Localize("lbl_roulette_died", ctx.user.display_name)
             else:
-                button.label = button_value
-                dead.label = settings.Localize("lbl_roulette_survived", interaction.user.display_name)
-            await interaction.response.edit_message(view=self)
-        # Set button callbacks.
-        shoot.callback = button.callback = dead.callback = button_callback
+                display_label = settings.Localize("lbl_roulette_survived", ctx.user.display_name)
+        dead = bullet <= dead_value
+        info = f"{dead_value}|{bullet}"
+        # Create buttons.
+        shoot = Button(label=settings.Localize("lbl_roulette_title"), style=discord.ButtonStyle.grey, custom_id=f"roulette_1|{info}", disabled=dead)
+        button = Button(label=bullet if not dead else "☠️", style=discord.ButtonStyle.blurple if not dead else discord.ButtonStyle.danger, custom_id=f"roulette_2|{info}", disabled=dead)
+        display = Button(label=display_label, style=discord.ButtonStyle.grey, custom_id=f"roulette_3|{info}", disabled=dead)
         # Add buttons.
         self.add_item(shoot)
         self.add_item(button)
-        self.add_item(dead)
+        self.add_item(display)
     ...
 
 #endregion

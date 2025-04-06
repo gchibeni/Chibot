@@ -2,6 +2,8 @@ from scripts import settings, voice
 import discord
 from discord.ext import commands
 from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
+import yt_dlp
+import asyncio
 
 #region Initialization
 
@@ -49,6 +51,15 @@ class commands_music(commands.Cog):
     async def stop(self, ctx: discord.Interaction):
         await ctx.response.defer(ephemeral=True)
         await ctx.followup.send("Stop", ephemeral=True)
+
+    # DOWNLOAD ────────────────
+    @command(name="download", description = settings.Localize("cmd_download"))
+    @guild_only()
+    async def download(self, ctx: discord.Interaction, search:str = ""):
+        await ctx.response.defer()
+        file = await asyncio.to_thread(voice.Download, ctx, search)
+        title = f"{file["title"]}"
+        await ctx.followup.send(settings.Localize("lbl_download_complete",title), file=file["file"])
 
     # SET MUSIC CHANNEL ────────────────
     @command(name="musicmessage", description = "-")

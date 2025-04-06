@@ -121,5 +121,8 @@
     "cmd_purge_force": { "en":"Force delete PAST messages with '🚩' reactions." },
     "lbl_purge_ended": { "en":"Messages cleared." },
 
+    "cmd_download": { "en":"Download videos as .mp3 files." },
+    "lbl_download_complete": { "en":"Downloaded: <arg1>" },
+
     "": { "en":"" }
 }

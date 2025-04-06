@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 from discord.ui import Button, View, Select, Modal
 import random
+import asyncio
 
 #region Initialization
 
@@ -99,7 +100,7 @@ class commands_common(commands.Cog):
     async def roulette(self, ctx:discord.Interaction, hidden:bool = False):
         await ctx.response.defer(thinking=True, ephemeral=hidden)
         # Generate view and dead value.
-        view = elements.RouletteView()
+        view = elements.RouletteView(ctx)
         await ctx.followup.send(view=view, ephemeral=hidden)
 
 #endregion
@@ -127,7 +128,7 @@ class commands_common(commands.Cog):
             return
         # Save and send replay file.
         seconds = min(seconds, settings.MAX_RECORDING_TIME)
-        file = await voice.SaveReplay(ctx, seconds, pitch)
+        file = await asyncio.to_thread(voice.SaveReplay, ctx, seconds, pitch)
         #await ctx.delete_original_response()
         if file is not None:
             if not hidden:

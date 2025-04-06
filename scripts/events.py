@@ -148,24 +148,31 @@ class bot_events(commands.Bot):
                             item.disabled = True
                 await interaction.response.edit_message(view=view)
             if custom_id.startswith("flip"):
+                # Flip interaction.
                 await interaction.response.edit_message(view=elements.FlipView(interaction))
-                print("flip called")
             if custom_id.startswith("roll"):
                 # Roll interaction.
-                await interaction.response.edit_message(view=elements.RollView(interaction, number=20))
+                await interaction.response.edit_message(view=elements.RollView(interaction))
             if custom_id.startswith("roulette"):
-                print("roulette called")
+                # Roulette interaction.
+                await interaction.response.edit_message(view=elements.RouletteView(interaction))
             if custom_id.startswith("play"):
+                # Music message play interaction.
                 print("play called")
             if custom_id.startswith("stop"):
+                # Music message stop interaction.
                 print("stop called")
             if custom_id.startswith("next"):
+                # Music message next interaction.
                 print("next called")
             if custom_id.startswith("prev"):
+                # Music message prev interaction.
                 print("prev called")
             if custom_id.startswith("clear"):
+                # Music message clear interaction.
                 print("clear called")
             if custom_id.startswith("download"):
+                # Music message download interaction.
                 print("download called")
             ...
 
