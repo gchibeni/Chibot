@@ -1,6 +1,6 @@
 ## ![Chibot](assets/chibot-featured.png)
 
-###### A lightweight, self-hosted Discord bot built to run beautifully on a Raspberry Pi — multi-server, RAM-optimized, and packed with music, soundboards, custom triggers, and admin tooling.
+A lightweight, self-hosted Discord bot built to run beautifully on a Raspberry Pi — multi-server, RAM-optimized, and packed with music, soundboards, custom triggers, and admin tooling.
 
 > [!NOTE]
 > **Chibot is a work in progress.** The core (voice, replay, admin, auth, fun commands) is up and running, but several features are still being built. See the [Roadmap](#construction-roadmap) for what's live and what's coming.
