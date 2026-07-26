@@ -83,52 +83,77 @@ Bot owners can also sync the command tree from any message:
 
 ## :hammer_and_wrench: Preparations
 
-1. Install **Python 3.12 or above** on your system.
-2. Make sure you have **APT**, **Homebrew** or **Chocolatey** available.
-3. Create a Discord application on the [Discord Developer Portal](https://discord.com/developers/applications) and **save the bot token**.
-4. Under **Bot → Privileged Gateway Intents**, enable **Message Content**, **Server Members** and **Presence**.
-5. Invite the bot to your server with administrator privileges.
+1. Install **[uv](https://docs.astral.sh/uv/)**, the Python project manager Chibot uses:
+
+   ```bash
+   # Windows
+   winget install astral-sh.uv
+
+   # macOS / Linux
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   > uv handles the virtual environment and dependencies for you, and will download **Python 3.12+** automatically if your system doesn't have it — so there's nothing else to install.
+
+2. Create a Discord application on the [Discord Developer Portal](https://discord.com/developers/applications) and **save the bot token**.
+3. Under **Bot → Privileged Gateway Intents**, enable **Message Content**, **Server Members** and **Presence**.
+4. Invite the bot to your server with administrator privileges.
    > Give it the highest role in the server to unlock every feature — server icon rotation requires it.
 
 <br>
 
 ## :package: Installation
 
-Chibot runs on **Windows**, **macOS** and **Linux**.
-
-**1.** Install the required system libraries using `apt-get`, `brew` or `choco`:
+Chibot runs on **Windows**, **macOS** and **Linux**. Clone the repository, then:
 
 ```bash
-opus-tools
-libopus0    # or "libopus" on macOS / Windows
-ffmpeg
-yt-dlp
+uv sync
 ```
 
-**2.** Open a terminal in the project's root folder.
+That's the whole setup. `uv sync` creates a virtual environment in `.venv/`, downloads a compatible Python if you don't have one, and installs every dependency at the exact version recorded in `uv.lock` — **including ffmpeg**, which ships inside the `imageio-ffmpeg` wheel. There is no separate `apt-get` / `brew` / `choco` step.
 
-**3.** *(Optional but recommended)* Create and activate a virtual environment:
+> [!TIP]
+> You never need to activate the virtual environment. Every `uv run` command below uses `.venv/` automatically.
+
+**One exception — libopus on Linux and macOS.** discord.py bundles libopus for Windows, but on other platforms it loads the system copy, and it's the only piece Chibot can't ship for you. It's usually already present; if voice commands fail, install it:
 
 ```bash
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+sudo apt install libopus0    # Debian / Ubuntu / Raspberry Pi OS
+brew install opus            # macOS
 ```
 
-**4.** Install the project requirements:
-
-```bash
-pip install -r requirements.txt
-```
+Chibot checks for it at startup and tells you the exact command if it's missing.
 
 <br>
 
 ## :rocket: Initialization
 
-From the project's root folder, run:
+From the project folder, start the bot with:
 
 ```bash
-python -m scripts
+uv run chibot
 ```
+
+`uv run` re-checks `uv.lock` before every launch and installs anything missing, so this is the only command you need — even on a fresh clone, `uv sync` is optional. There's also a launcher per platform, which does the same thing but works from *any* directory:
+
+```powershell
+.\start.ps1     # Windows
+```
+
+```bash
+./start.sh      # macOS / Linux  (chmod +x start.sh once)
+```
+
+<details>
+<summary>Other ways to start it</summary>
+
+```bash
+uv run python -m scripts     # equivalent; the module entry point
+```
+
+Both `chibot` and `python -m scripts` call `main()` in `scripts/runtime.py`, which moves the process to the project root before starting. Chibot reads `token.secret`, `settings.json`, `locale.json` and `guilds/` relative to the working directory, so this is what lets it launch from anywhere.
+
+</details>
 
 On the first run Chibot will ask for your Discord bot **token** and store it in `token.secret`. If you paste the wrong one, just open `token.secret` in any text editor, replace its contents, and run the command again.
 
@@ -139,11 +164,41 @@ Once the bot is online, send `!sync here` in your server to register the slash c
 
 <br>
 
+## :wrench: Managing Dependencies
+
+Dependencies are declared in `pyproject.toml` and locked to exact versions in `uv.lock`, and the Python version is pinned in `.python-version`. All three are committed, so every machine that runs `uv sync` gets an identical environment — uv downloads the pinned Python if the system doesn't have it. Change it with `uv python pin 3.13`.
+
+| Command | What it does |
+| :--- | :--- |
+| `uv run chibot` | Start the bot |
+| `.\start.ps1` / `./start.sh` | Start the bot from any directory |
+| `uv sync` | Install/update the environment to match `uv.lock` |
+| `uv add <package>` | Add a dependency and update the lockfile |
+| `uv remove <package>` | Remove a dependency |
+| `uv lock --upgrade` | Bump every dependency to the newest allowed version |
+| `uv run python` | Open a REPL with the project's dependencies loaded |
+
+If you'd rather use plain `pip`, `requirements.txt` is still there and is generated from the lockfile. Regenerate it after changing dependencies:
+
+```bash
+uv export --no-hashes --no-dev --no-emit-project --format requirements-txt -o requirements.txt
+```
+
+### Bundled binaries
+
+Two dependencies exist to keep the install to a single command:
+
+- **`imageio-ffmpeg`** ships an ffmpeg binary in its wheel, for every platform Chibot targets including 64-bit Raspberry Pi OS. `scripts/runtime.py` prefers a system ffmpeg when one is on `PATH` — that build is more complete and includes ffprobe — and falls back to the bundled copy otherwise. The resolved path is handed explicitly to discord.py, yt-dlp and pydub.
+- **`audioop-lts`** replaces the `audioop` module, which pydub imports but which was removed from the standard library in Python 3.13. It installs only on 3.13+, so Chibot runs on both 3.12 and current releases.
+
+<br>
+
 ## :file_folder: Project Structure
 
 ```
 scripts/
-├── __main__.py      # Entry point — token prompt and bootstrap
+├── runtime.py       # Startup — working dir, ffmpeg/opus, token prompt
+├── __main__.py      # "python -m scripts" entry point
 ├── chibot.py        # Bot instance, intents and startup
 ├── events.py        # Gateway events, command sync, auto-disconnect
 ├── settings.py      # Config, localization, per-guild storage, icon rotation
@@ -156,6 +211,11 @@ scripts/
     ├── musics.py    # /play, /download and music controls
     └── triggers.py  # Custom trigger messages (in progress)
 
+start.ps1            # Launcher (Windows)
+start.sh             # Launcher (macOS / Linux)
+pyproject.toml       # Project metadata, dependencies and the "chibot" command
+uv.lock              # Exact resolved dependency versions
+.python-version      # Pinned Python version
 locale.json          # All user-facing strings
 settings.json        # Per-guild settings (gitignored)
 guilds/              # Per-guild assets, e.g. icons (gitignored)

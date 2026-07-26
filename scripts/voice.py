@@ -1,5 +1,5 @@
 import discord.voice_state
-from scripts import settings
+from scripts import runtime, settings
 import yt_dlp
 import io
 import time
@@ -17,12 +17,17 @@ SAMPLE_RATE = 48000  # Discord uses 48kHz.
 CHANNELS = 2  # Stereo audio.
 BYTES_PER_SAMPLE = 2  # 16-bit PCM (2 bytes per sample).
 
+FFMPEG = runtime.ffmpeg_executable()  # System ffmpeg, or the bundled fallback.
+AudioSegment.converter = FFMPEG  # pydub shells out for anything but WAV.
+
 ffmpeg_settings = {
+    "executable": FFMPEG,
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn -bufsize 8192",  # No video, set buffer size
 }
 
 ytdl_settings = {
+    "ffmpeg_location": FFMPEG,
     "format": "bestaudio/best",  # Get the best available audio format
     "quiet": True,  # Suppress output to the console
     "no_warnings": True,  # Suppress warnings

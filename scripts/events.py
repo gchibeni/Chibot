@@ -32,8 +32,11 @@ class bot_events(commands.Bot):
             # Initialize all cogs.
             await bot.wait_until_ready()
             cogs = []
-            for filename in os.listdir("./scripts/cogs"):
-                if (filename.endswith('.py')):
+            # Resolved from this file rather than the working directory, and
+            # skipping "_" names so __init__.py isn't loaded as an extension.
+            cogs_dir = os.path.join(os.path.dirname(__file__), 'cogs')
+            for filename in sorted(os.listdir(cogs_dir)):
+                if filename.endswith('.py') and not filename.startswith('_'):
                     await bot.load_extension(f'scripts.cogs.{filename[:-3]}')
                     cogs.append(filename[:-3])
             print(f"\n{Fore.GREEN}─── STATUS ───\n> Cogs started: \"{", ".join(cogs)}\"\n> Connected as: \"{bot.user}\"\n──────────────{Fore.RESET}\n")
