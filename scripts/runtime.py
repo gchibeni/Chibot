@@ -54,6 +54,23 @@ def ensure_opus() -> bool:
     except Exception:
         pass
 
+    # ctypes.util.find_library does not search Homebrew's prefix on Apple
+    # Silicon, so a brew-installed libopus goes undetected. Probe the known
+    # Homebrew locations (and the Intel-mac /usr/local one) directly.
+    if sys.platform == 'darwin':
+        for path in (
+            '/opt/homebrew/opt/opus/lib/libopus.dylib',
+            '/opt/homebrew/lib/libopus.dylib',
+            '/usr/local/opt/opus/lib/libopus.dylib',
+            '/usr/local/lib/libopus.dylib',
+        ):
+            if os.path.exists(path):
+                try:
+                    discord.opus.load_opus(path)
+                    return True
+                except Exception:
+                    pass
+
     hint = {
         'linux': 'sudo apt install libopus0',
         'darwin': 'brew install opus',

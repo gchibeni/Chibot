@@ -132,11 +132,8 @@ uv run chibot
 
 Or use the launcher, which works from any directory:
 
-```powershell
-.\start.ps1     # Windows
-```
-
 ```bash
+.\start.ps1     # Windows
 ./start.sh      # macOS / Linux  (chmod +x start.sh once)
 ```
 
@@ -146,57 +143,6 @@ Once the bot is online, send `!sync here` in your server to register the slash c
 
 > [!IMPORTANT]
 > `token.secret`, `settings.json` and `guilds/` are gitignored — they hold your bot token, TOTP secrets and per-guild assets. Never commit them.
-
-<br>
-
-## :wrench: Managing Dependencies
-
-Dependencies live in `pyproject.toml`, pinned in `uv.lock`; the Python version is set in `.python-version` (change it with `uv python pin 3.13`). Commit all three.
-
-| Command                      | What it does                                        |
-| :--------------------------- | :-------------------------------------------------- |
-| `uv run chibot`              | Start the bot                                       |
-| `.\start.ps1` / `./start.sh` | Start the bot from any directory                    |
-| `uv sync`                    | Install/update the environment to match `uv.lock`   |
-| `uv add <package>`           | Add a dependency and update the lockfile            |
-| `uv remove <package>`        | Remove a dependency                                 |
-| `uv lock --upgrade`          | Bump every dependency to the newest allowed version |
-| `uv run python`              | Open a REPL with the project's dependencies loaded  |
-
-`requirements.txt` is kept for `pip` users. Regenerate it after changing dependencies:
-
-```bash
-uv export --no-hashes --no-dev --no-emit-project --format requirements-txt -o requirements.txt
-```
-
-<br>
-
-## :construction: Roadmap
-
-**Working**
-
-- [x] Voice replay buffer with pitch effects
-- [x] Audio playback and `.mp3` downloads
-- [x] Message builder, anonymous messages and protective purge
-- [x] Scheduled server icon themes with sleep variants
-- [x] TOTP authenticator vault
-- [x] Fun commands and interactive views
-- [x] Localization system
-
-**In progress**
-
-- [ ] Full music queue — `/skip`, `/pause`, `/stop` and shuffle
-- [ ] Persistent music message with playback controls
-- [ ] Custom trigger messages & responses
-- [ ] `/reminder`
-- [ ] Dynamic per-guild custom commands
-
-**Planned**
-
-- [ ] Spotify playlist support
-- [ ] `/theme` command to replace `/addicon`
-- [ ] Additional locales
-- [ ] AI-assisted responses
 
 <br>
 
