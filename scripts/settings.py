@@ -12,7 +12,8 @@ import re
 
 #region Variables
 
-LANG = "en" # Same lang code as on locale.json.
+LANG = "en" # Default lang code, same as on locale.json.
+LANGUAGES = { "en":"English", "pt":"Português" } # Languages selectable per guild via /setup.
 AUTH_LIMIT = 12 # 25 is discord's list limit.
 TEMPLATE_LIMIT = 24 # 25 is discord's list limit.
 TRIGGER_LIMIT = 24 # 25 is discord's list limit.
@@ -21,6 +22,8 @@ THEME_LIMIT = 24 # 25 is discord's list limit.
 AUTO_DISCONNECT = True # Check if alone before auto disconnecting.
 DISCONNECT_AFTER = 15 # Time in seconds before auto disconnecting.
 MAX_RECORDING_TIME = 120 # Duration of the recording buffer in seconds.
+SPEECH_DEBUG = True # Print everything the voice trigger recognizers hear.
+WHISPER_MODEL = "base" # Whisper size for voice commands: tiny, base or small.
 
 editing_say = {} # All users editing "say" messages.
 
@@ -304,7 +307,15 @@ def GetInfo(id:int, key:str, default = None) -> Union[None, dict, str]:
 
 #region Localization
 
-def Localize(key:str, *args) -> str:
+def GetLanguage(guild_id:int = None) -> str:
+    """The guild's configured language, or the bot default."""
+    if guild_id:
+        lang = GetInfo(guild_id, "setup/language")
+        if lang in LANGUAGES:
+            return lang
+    return LANG
+
+def Localize(key:str, *args, guild_id:int = None) -> str:
     data:json = {}
     filePath = 'locale.json'
     exists = os.path.isfile(f'./{filePath}')
@@ -314,11 +325,14 @@ def Localize(key:str, *args) -> str:
             except: data = {}
 
     keyLower:str = key.lower()
+    lang = GetLanguage(guild_id)
     if keyLower in data:
-        if LANG in data:
-            return ReplaceArguments(data[keyLower][LANG], *args)
-        elif "en" in LANG:
-            return ReplaceArguments(data[keyLower]["en"], *args)
+        entry = data[keyLower]
+        if lang in entry:
+            return ReplaceArguments(entry[lang], *args)
+        # Untranslated keys fall back to English.
+        if "en" in entry:
+            return ReplaceArguments(entry["en"], *args)
     return f"({keyLower})"
 
 def ReplaceArguments(template:str, *args) -> str:

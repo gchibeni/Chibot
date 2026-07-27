@@ -1,4 +1,4 @@
-from scripts import settings, voice, elements
+from scripts import settings, voice, elements, actions
 import os
 import discord
 from discord.ui import View, Button, Select
@@ -16,6 +16,10 @@ class bot_events(commands.Bot):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.tasks = {}
+        # Music buttons honor the permissions admins set on their backing
+        # commands (Server Settings > Integrations); the mapping and the
+        # evaluation live in elements.py, shared with /controls.
+        button_commands = elements.BUTTON_COMMANDS
 
 #endregion
 
@@ -79,7 +83,8 @@ class bot_events(commands.Bot):
                 await sync()
 
             # Check triggers.
-            # (Implement trigger checking here)
+            if guild:
+                await actions.CheckTextTriggers(bot, message)
 
             # AI answers here.
             # (Implement AI answers here)
@@ -121,7 +126,14 @@ class bot_events(commands.Bot):
                     print("Bot - Changed channel.")
                 elif disconnected:
                     voice.ClearRecordData(guild)
+                    # Show the empty state on the music message.
+                    await voice.UpdateMusicMessage(guild)
                     print("Bot - Disconnected from channel.")
+            # Auto join the configured channel when a user connects to it.
+            if not member.bot and after.channel and not voice_client:
+                auto_join_id = settings.GetInfo(guild.id, "setup/auto_join_channel")
+                if auto_join_id and int(auto_join_id) == after.channel.id:
+                    await voice.Connect(after.channel)
             if voice_client and settings.AUTO_DISCONNECT:
                 # Check if bot is alone.
                 bot_channel:discord.VoiceChannel = voice_client.channel
@@ -159,29 +171,75 @@ class bot_events(commands.Bot):
             if custom_id.startswith("roulette"):
                 # Roulette interaction.
                 await interaction.response.edit_message(view=elements.RouletteView(interaction))
-            if custom_id.startswith("play"):
-                # Music message play interaction.
-                print("play called")
-            if custom_id.startswith("stop"):
-                # Music message stop interaction.
-                print("stop called")
-            if custom_id.startswith("next"):
-                # Music message next interaction.
-                print("next called")
-            if custom_id.startswith("prev"):
-                # Music message prev interaction.
-                print("prev called")
-            if custom_id.startswith("clear"):
-                # Music message clear interaction.
-                print("clear called")
-            if custom_id.startswith("download"):
-                # Music message download interaction.
-                print("download called")
+            # Music message controls, handled by raw custom_id so the
+            # buttons keep working after a restart. "stop" and "clear" stay
+            # handled for music messages rendered before their removal.
+            guild = interaction.guild
+            if guild and custom_id == "clear":
+                # Clearing the whole queue asks for confirmation first.
+                if not await can_use_button(interaction, button_commands[custom_id]):
+                    await interaction.response.send_message(settings.Localize("lbl_no_permission", guild_id=guild.id), ephemeral=True)
+                    return
+                await interaction.response.send_modal(elements.ClearQueueModal(guild.id))
+            if guild and custom_id in ("play", "stop", "next", "prev", "shuffle", "loop", "backward", "forward"):
+                if not await can_use_button(interaction, button_commands[custom_id]):
+                    await interaction.response.send_message(settings.Localize("lbl_no_permission", guild_id=guild.id), ephemeral=True)
+                    return
+                await interaction.response.defer()
+                if custom_id == "play":
+                    # Toggle: resume when paused, pause when playing,
+                    # otherwise start whatever is queued.
+                    if not voice.ResumeMusic(guild) and not voice.PauseMusic(guild):
+                        await voice.PlayNext(guild)
+                elif custom_id == "stop":
+                    await voice.StopMusic(guild)
+                elif custom_id == "next":
+                    await voice.PlayNext(guild)
+                elif custom_id == "prev":
+                    await voice.PlayPrev(guild)
+                elif custom_id == "shuffle":
+                    await voice.ShuffleQueue(guild)
+                elif custom_id == "loop":
+                    await voice.ToggleLoop(guild)
+                elif custom_id == "backward":
+                    await voice.ScrubRelative(guild, -10)
+                elif custom_id == "forward":
+                    await voice.ScrubRelative(guild, 10)
+                # Refresh the button states (pause and resume change no
+                # queue content, so nothing else re-renders the message).
+                await voice.UpdateMusicMessage(guild)
+                # A press on a personal /controls panel refreshes it too.
+                if interaction.message is not None and interaction.message.flags.ephemeral:
+                    allowed = await elements.AllowedButtonCommands(bot, guild, interaction.user, interaction.channel_id)
+                    try:
+                        await interaction.edit_original_response(view=elements.MusicMessageView(guild, allowed=allowed))
+                    except Exception:
+                        pass
+            if guild and custom_id == "download":
+                if not await can_use_button(interaction, button_commands[custom_id]):
+                    await interaction.response.send_message(settings.Localize("lbl_no_permission", guild_id=guild.id), ephemeral=True)
+                    return
+                # Download the currently playing media, reusing its already
+                # resolved stream url so no extraction is paid.
+                data = voice.guild_data.get(guild.id)
+                current = data.current if data is not None else None
+                if current is None:
+                    await interaction.response.send_message(settings.Localize("lbl_music_nothing_playing", guild_id=guild.id), ephemeral=True)
+                else:
+                    await interaction.response.defer(ephemeral=True, thinking=True)
+                    file = await asyncio.to_thread(voice.DownloadCurrent, guild)
+                    if file is not None:
+                        await interaction.followup.send(settings.Localize("lbl_download_complete", file["title"], guild_id=guild.id), file=file["file"], ephemeral=True)
             ...
 
 #endregion
 
 #region Functions
+
+        async def can_use_button(interaction:discord.Interaction, command_name:str) -> bool:
+            """Whether the member passes the Integrations permission
+            overrides of the command backing a music button."""
+            return await elements.CanUseCommand(bot, interaction.guild, interaction.user, interaction.channel_id, command_name)
 
         def start_checking(guild:discord.Guild):
             """Start checking bot is alone in a voice chat before disconnecting automatically"""

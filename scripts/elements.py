@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 from discord.ui import Button, View, Select, Modal, TextInput
 import random
+import time
 from typing import List
 
 #region Utils
@@ -34,6 +35,149 @@ class AnonModal(Modal):
             await interaction.channel.send(embed=embedded)
         else:
             await self.user.send(embed=embedded)
+
+#endregion
+
+#region Music permissions
+
+# The slash command whose Integrations permissions gate each music button.
+BUTTON_COMMANDS = {
+    "play": "play",
+    "prev": "prev",
+    "next": "next",
+    "stop": "stop",
+    "clear": "clear",
+    "shuffle": "shuffle",
+    "loop": "play",
+    "download": "download",
+    "backward": "scrub",
+    "forward": "scrub",
+}
+_permissions_cache = {}  # guild_id -> (fetched_at, {command_name: overrides})
+
+async def FetchCommandOverrides(bot:commands.Bot, guild:discord.Guild) -> dict:
+    """The guild's Integrations overrides for the commands backing music
+    buttons, cached for a minute."""
+    cached = _permissions_cache.get(guild.id)
+    if cached and time.monotonic() - cached[0] < 60:
+        return cached[1]
+    overrides = {}
+    try:
+        # Commands are synced per guild, with a global fallback.
+        fetched = await bot.tree.fetch_commands(guild=guild)
+        if not fetched:
+            fetched = await bot.tree.fetch_commands()
+        for fetched_command in fetched:
+            if fetched_command.name not in BUTTON_COMMANDS.values():
+                continue
+            try:
+                permissions = await fetched_command.fetch_permissions(guild)
+                overrides[fetched_command.name] = permissions.permissions
+            except discord.NotFound:
+                # No overrides configured for this command.
+                continue
+    except Exception as e:
+        print(f"Music - Could not fetch command permissions.\nErrors: {e}\n")
+    _permissions_cache[guild.id] = (time.monotonic(), overrides)
+    return overrides
+
+async def CanUseCommand(bot:commands.Bot, guild:discord.Guild, member:discord.Member, channel_id:int, command_name:str) -> bool:
+    """Whether the member passes the Integrations permission overrides of
+    the given command, evaluated the way Discord does."""
+    if member.guild_permissions.administrator:
+        return True
+    overrides = (await FetchCommandOverrides(bot, guild)).get(command_name)
+    if not overrides:
+        # No overrides configured: the command is open to everyone.
+        return True
+    users = {o.id: o.permission for o in overrides if o.type is app_commands.AppCommandPermissionType.user}
+    roles = {o.id: o.permission for o in overrides if o.type is app_commands.AppCommandPermissionType.role}
+    channels = {o.id: o.permission for o in overrides if o.type is app_commands.AppCommandPermissionType.channel}
+    # Channel gate first, "guild id - 1" meaning every channel.
+    if not channels.get(channel_id, channels.get(guild.id - 1, True)):
+        return False
+    # A member override beats roles, any allowing role beats the
+    # @everyone override, which acts as the base value.
+    if member.id in users:
+        return users[member.id]
+    role_values = [roles[role.id] for role in member.roles if role.id in roles and role.id != guild.id]
+    if role_values:
+        return any(role_values)
+    return roles.get(guild.id, True)
+
+async def AllowedButtonCommands(bot:commands.Bot, guild:discord.Guild, member:discord.Member, channel_id:int) -> set:
+    """The set of button-backing commands the member may use."""
+    allowed = set()
+    for command_name in set(BUTTON_COMMANDS.values()):
+        if await CanUseCommand(bot, guild, member, channel_id, command_name):
+            allowed.add(command_name)
+    return allowed
+
+#endregion
+
+#region Music
+
+class MusicMessageView(View):
+    """Controls under the music message, rendered from the guild's current
+    playback state. The buttons carry only custom_ids, the raw interactions
+    are handled in events.py so they keep working after a restart without
+    re-registering the view. Passing `allowed` (a set of command names)
+    keeps only the buttons backed by those commands, for /controls."""
+    def __init__(self, guild:discord.Guild = None, allowed:set = None, **kwargs):
+        kwargs.setdefault("timeout", None)
+        super().__init__(**kwargs)
+        self.allowed = allowed
+        # Read the playback state.
+        data = voice.guild_data.get(guild.id) if guild is not None else None
+        voice_client = guild.voice_client if guild is not None else None
+        playing = bool(voice_client and voice_client.is_playing())
+        paused = bool(voice_client and voice_client.is_paused())
+        loop = voice.GetLoop(guild.id) if guild is not None else False
+        has_current = data is not None and data.current is not None
+        has_queue = data is not None and len(data.queue) > 1
+        active = data is not None and (has_current or bool(data.queue) or playing or paused)
+        # Toggled buttons light up, everything grays out when idle. The
+        # play button always shows the action it will perform. A row holds
+        # at most 5 buttons, so the transport strip gets its own line.
+        def toggle_style(on:bool):
+            return discord.ButtonStyle.blurple if on else discord.ButtonStyle.grey
+        shuffle_button = Button(emoji="🔀", style=discord.ButtonStyle.grey, custom_id="shuffle", row=0, disabled=not has_queue)
+        prev_button = Button(emoji="⏮️", style=discord.ButtonStyle.grey, custom_id="prev", row=0, disabled=not active)
+        play_button = Button(emoji="⏸️" if playing else "▶️", style=toggle_style(playing), custom_id="play", row=0, disabled=not active)
+        next_button = Button(emoji="⏭️", style=discord.ButtonStyle.grey, custom_id="next", row=0, disabled=not active)
+        # The loop preference persists, so it stays togglable while idle.
+        loop_button = Button(emoji="🔁", style=toggle_style(loop), custom_id="loop", row=0, disabled=guild is None)
+        download_button = Button(emoji="💾", style=discord.ButtonStyle.grey, custom_id="download", row=1, disabled=not has_current)
+        backward_button = Button(emoji="⏪", label="-10s", style=discord.ButtonStyle.grey, custom_id="backward", row=1, disabled=not has_current)
+        forward_button = Button(emoji="⏩", label="+10s", style=discord.ButtonStyle.grey, custom_id="forward", row=1, disabled=not has_current)
+        # Clearing also covers a queue stashed by a disconnect.
+        stash = voice._music_backup.get(guild.id) if guild is not None else None
+        has_items = (data is not None and len(data.queue) > 0) or bool(stash and stash[0])
+        clear_button = Button(emoji="🗑️", style=discord.ButtonStyle.red, custom_id="clear", row=1, disabled=not has_items)
+        for button in (shuffle_button, prev_button, play_button, next_button, loop_button, download_button, backward_button, forward_button, clear_button):
+            # Keep only permitted buttons when a filter is given.
+            if allowed is None or BUTTON_COMMANDS.get(button.custom_id) in allowed:
+                self.add_item(button)
+    ...
+
+class ClearQueueModal(Modal):
+    """Confirmation before the 🗑️ button empties the entire queue."""
+    def __init__(self, guild_id:int, **kwargs):
+        kwargs.setdefault("title", settings.Localize("mdl_clear_queue_title", guild_id=guild_id))
+        super().__init__(**kwargs)
+        self.confirm_text = settings.Localize("lbl_confirm", guild_id=guild_id)
+        confirm_label = settings.Localize("lbl_type_confirmation", self.confirm_text, guild_id=guild_id)
+        self.confirm_input = TextInput(style=discord.TextStyle.short, label=confirm_label, required=True, min_length=len(self.confirm_text), max_length=len(self.confirm_text))
+        self.add_item(self.confirm_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Check if confirmation was correct.
+        if str(self.confirm_input.value).lower() != self.confirm_text.lower():
+            await interaction.response.send_message(settings.Localize("lbl_wrong_confirmation", guild_id=interaction.guild_id), ephemeral=True)
+            return
+        # Clear the queue, crediting the user on the music message footer.
+        await voice.ClearQueue(interaction.guild, interaction.user)
+        await interaction.response.defer()
 
 #endregion
 

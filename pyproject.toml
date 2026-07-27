@@ -5,14 +5,22 @@ description = "A lightweight, self-hosted Discord bot built to run beautifully o
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "discord.py==2.4.0",
-    "discord-ext-voice-recv==0.4.2a145",
+    "discord.py==2.7.1",
+    "discord-ext-voice-recv==0.5.2a179",
     "PyNaCl==1.5.0",
     "colorama==0.4.6",
-    "yt-dlp==2025.3.27",
+    # yt-dlp must stay reasonably current: YouTube layout changes routinely
+    # break old versions (e.g. playlists extracting 0 items).
+    "yt-dlp>=2025.3.27",
     "pydub==0.25.1",
     "pyotp==2.9.0",
     "urllib3==2.3.0",
+    # Offline speech recognition for voice triggers. Small en/pt models are
+    # downloaded to ./models on first use — see scripts/speech.py.
+    "vosk==0.3.45",
+    # Whisper (CTranslate2 build) transcribes voice commands after a wake
+    # phrase. The model downloads on first use — see scripts/speech.py.
+    "faster-whisper==1.2.1",
     # Ships an ffmpeg binary in the wheel, so a fresh clone can play and
     # convert audio without ffmpeg being installed system-wide. A system
     # ffmpeg still wins when present — see scripts/runtime.py.

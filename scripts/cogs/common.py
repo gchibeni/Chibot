@@ -4,7 +4,10 @@ from discord.ext import commands
 from discord import app_commands
 from discord.app_commands import default_permissions, describe, dm_only, guild_only, command, Range
 from discord.ui import Button, View, Select, Modal
+import json
 import random
+import time
+import urllib.request
 import asyncio
 
 #region Initialization
@@ -41,10 +44,10 @@ class commands_common(commands.Cog):
         self.bot.tree.add_command(command_test, guild=ctx.guild)
         await self.bot.tree.sync(guild=ctx.guild)
 
-    # CLEAR ────────────────
-    @command(name="clear", description = settings.Localize("cmd_clear"))
+    # CLEAR DM ────────────────
+    @command(name="cleardm", description = settings.Localize("cmd_cleardm"))
     @dm_only()
-    async def clear(self, ctx:discord.Interaction):
+    async def cleardm(self, ctx:discord.Interaction):
         await ctx.response.defer(ephemeral=True)
         async for message in ctx.channel.history(limit=100):
             if message.author == self.bot.user:
@@ -66,10 +69,21 @@ class commands_common(commands.Cog):
     async def anon(self, ctx:discord.Interaction, user:discord.User = None):
         await ctx.response.send_modal(elements.AnonModal(ctx, user, title=settings.Localize("mdl_anon_title")))
 
-    # REMINDER ────────────────
-    @command(name="reminder", description = settings.Localize("cmd_reminder"))
-    async def remind_me(self, ctx:discord.Interaction):
-        await ctx.response.send_message("Reminder", ephemeral=True)
+    # CONVERT ────────────────
+    @command(name="convert", description = settings.Localize("cmd_convert"))
+    @describe(value=settings.Localize("cmd_convert_value"))
+    @describe(source=settings.Localize("cmd_convert_source"))
+    @describe(target=settings.Localize("cmd_convert_target"))
+    async def convert(self, ctx:discord.Interaction, value:float, source:str, target:str):
+        await ctx.response.defer(thinking=True)
+        source, target = source.strip().upper(), target.strip().upper()
+        try:
+            rates = await asyncio.to_thread(_FetchRates, source)
+            rate = rates[target]
+        except Exception:
+            await ctx.followup.send(settings.Localize("lbl_convert_invalid", guild_id=ctx.guild_id), ephemeral=True)
+            return
+        await ctx.followup.send(settings.Localize("lbl_convert_result", f"{value:,.2f}", source, f"{value * rate:,.2f}", target, guild_id=ctx.guild_id))
 
 #endregion
 
@@ -107,6 +121,33 @@ class commands_common(commands.Cog):
 
 #region Voice
 
+    # JOIN ────────────────
+    @command(name="join", description = settings.Localize("cmd_join"))
+    @guild_only()
+    @describe(force=settings.Localize("lbl_force"))
+    async def join(self, ctx:discord.Interaction, force:bool = False):
+        await ctx.response.defer(ephemeral=True)
+        # Try to connect to the user's voice channel.
+        connection = await voice.TryConnect(ctx, force)
+        if not connection:
+            await ctx.followup.send(settings.Localize(connection.message), ephemeral=True)
+            return
+        if connection.already_connected():
+            await ctx.followup.send(settings.Localize("lbl_voice_already"), ephemeral=True)
+        else:
+            await ctx.followup.send(settings.Localize("lbl_voice_joined"), ephemeral=True)
+
+    # LEAVE ────────────────
+    @command(name="leave", description = settings.Localize("cmd_leave"))
+    @guild_only()
+    async def leave(self, ctx:discord.Interaction):
+        await ctx.response.defer(ephemeral=True)
+        # Leaving also stops playback and clears the music queue.
+        if await voice.StopMusic(ctx.guild):
+            await ctx.followup.send(settings.Localize("lbl_voice_left"), ephemeral=True)
+        else:
+            await ctx.followup.send(settings.Localize("lbl_music_not_connected"), ephemeral=True)
+
     # REPLAY ────────────────
     @command(name="replay", description = settings.Localize("cmd_replay"))
     @guild_only()
@@ -138,5 +179,25 @@ class commands_common(commands.Cog):
                 await ctx.followup.send(settings.Localize("lbl_replay_complete", seconds, pitch), file=file, ephemeral=True)
             return
         await ctx.followup.send(settings.Localize("lbl_replay_failed"), ephemeral=True)
+
+#endregion
+
+#region Currency
+
+_rates_cache = {}  # base currency -> (fetched_at, rates dict)
+
+def _FetchRates(base:str) -> dict:
+    """Blocking: exchange rates for a base currency, cached for an hour.
+    Uses the keyless open.er-api.com endpoint."""
+    cached = _rates_cache.get(base)
+    if cached and time.time() - cached[0] < 3600:
+        return cached[1]
+    request = urllib.request.Request(f"https://open.er-api.com/v6/latest/{base}", headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        data = json.loads(response.read().decode())
+    if data.get("result") != "success":
+        raise ValueError(f"Rate lookup failed for {base}.")
+    _rates_cache[base] = (time.time(), data["rates"])
+    return data["rates"]
 
 #endregion
