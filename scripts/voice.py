@@ -23,6 +23,7 @@ import discord
 from datetime import datetime
 from discord.ext.voice_recv import VoiceData, VoiceRecvClient, BasicSink
 from discord.ext.voice_recv import opus as voice_recv_opus
+from discord.ext.voice_recv import reader as voice_recv_reader
 from discord.ext.voice_recv.rtp import OPUS_SILENCE
 import re
 from pydub import AudioSegment
@@ -313,24 +314,23 @@ voice_recv_opus.PacketDecoder._get_next_packet = _patched_get_next_packet
 # steps in: restart the listener, rebuild the DAVE session, reconnect.
 RTP_FRESH_SECONDS = 5  # Packets seen this recently mean someone is transmitting.
 PCM_STALL_SECONDS = 10  # Transmission without recorded audio for this long = stalled.
-RECOVER_GRACE_SECONDS = 20  # Time given to each recovery step before escalating.
 
 def _HealthFor(guild_id:int) -> dict:
     health = _health.get(guild_id)
     if health is None:
-        health = _health[guild_id] = { "rtp":0.0, "pcm":0.0, "dave_fail":0.0, "opus_fail":0.0, "stage":0, "hold_until":0.0 }
+        health = _health[guild_id] = { "rtp":0.0, "pcm":0.0, "dave_fail":0.0, "opus_fail":0.0, "hold_until":0.0 }
     return health
 
 def _ResetHealth(guild_id:int):
     """Clear the activity markers, keeping the recovery backoff."""
-    _HealthFor(guild_id).update({ "rtp":0.0, "pcm":0.0, "dave_fail":0.0, "opus_fail":0.0, "stage":0 })
+    _HealthFor(guild_id).update({ "rtp":0.0, "pcm":0.0, "dave_fail":0.0, "opus_fail":0.0 })
 
 # The sink runs in opus mode (decode=False), so voice_recv's own decoder
 # never runs: replay decodes fresh from the stored frames, and the live
 # decode for the voice recognizers happens in RecorderCallback with
 # per-user decoders whose errors cost one frame, never the pipeline.
 
-def EnableDaveDecryption(voice_client:VoiceRecvClient):
+def _WrapDaveDecryption(reader, voice_client:VoiceRecvClient):
     """Add DAVE E2EE decryption to voice_recv's receive pipeline.
 
     Discord enforces the DAVE end-to-end encryption protocol on voice
@@ -340,7 +340,7 @@ def EnableDaveDecryption(voice_client:VoiceRecvClient):
     This wraps the packet decryptor to also decrypt the DAVE layer with
     discord.py's own session before frames reach the opus decoder.
     """
-    decryptor = voice_client._reader.decryptor
+    decryptor = reader.decryptor
     transport_decrypt = decryptor.decrypt_rtp
     last_error_log = [0.0]
     health = _HealthFor(voice_client.guild.id)
@@ -380,6 +380,18 @@ def EnableDaveDecryption(voice_client:VoiceRecvClient):
                 print(f"Voice - DAVE decryption failed for user {user_id}.\nErrors: {e}\n")
             return OPUS_SILENCE
     decryptor.decrypt_rtp = decrypt_rtp
+
+# Wrap the decryptor when the reader is BUILT, not after listen() starts
+# it: wrapping afterwards left a brief window where E2EE frames reached
+# the pipeline undecrypted every time listening (re)started.
+_original_reader_init = voice_recv_reader.AudioReader.__init__
+def _patched_reader_init(self, sink, voice_client, *, after=None):
+    _original_reader_init(self, sink, voice_client, after=after)
+    try:
+        _WrapDaveDecryption(self, voice_client)
+    except Exception as e:
+        print(f"Voice - Could not enable DAVE decryption.\nErrors: {e}\n")
+voice_recv_reader.AudioReader.__init__ = _patched_reader_init
 
 #endregion
 
@@ -443,7 +455,6 @@ def _StartListening(voice_client:VoiceRecvClient, guild:discord.Guild):
     # as-is and decodes fresh on demand; the live decode for the voice
     # recognizers runs in RecorderCallback with per-user decoders.
     voice_client.listen(BasicSink(lambda user, data: RecorderCallback(guild, user, data), decode=False))
-    EnableDaveDecryption(voice_client)
     speech.RegisterGuild(voice_client.client, guild)
 
 def EnsureListening(guild:discord.Guild):
@@ -517,34 +528,21 @@ async def _CheckPipelineHealth(guild_id:int):
     last_pcm = max(health["pcm"], data.start_timestamp)
     stalled = now - last_pcm > PCM_STALL_SECONDS
     if not stalled:
-        health["stage"] = 0  # Audio is flowing, the pipeline is healthy.
-        return
+        return  # Audio is flowing, the pipeline is healthy.
     if not receiving:
         return  # Nobody is transmitting; nothing to judge.
     print(f"Voice - Recording stalled in \"{guild.name}\": packets arriving but no audio recorded "
           f"for {now - last_pcm:.0f}s ({_DaveStatus(voice_client)}).")
-    if health["stage"] == 0:
-        # Gentlest fix first: rebuild the E2EE session. The server answers
-        # a fresh key package by re-adding the bot to the MLS group, which
-        # resolves any key desync without dropping the connection.
-        health["stage"] = 1
-        health["hold_until"] = now + RECOVER_GRACE_SECONDS
-        connection = voice_client._connection
-        if connection.dave_protocol_version > 0:
-            print(f"Voice - Rebuilding the DAVE session for \"{guild.name}\".")
-            try:
-                await connection.reinit_dave_session()
-            except Exception as e:
-                print(f"Voice - Could not rebuild the DAVE session.\nErrors: {e}\n")
-        return
-    # Last resort: a full reconnect rebuilds every layer. The music queue
+    # A full reconnect rebuilds every layer cleanly. (A bare
+    # reinit_dave_session looked gentler but strands the session: it drops
+    # every per-user decryptor and waits for an MLS welcome the server
+    # never sends — "NoDecryptorForUser" forever.) The music queue
     # survives through the disconnect stash; playback resumes if it was
-    # active. The (already broken) replay buffer starts over.
+    # active. The (already broken) recording starts over.
     print(f"Voice - Reconnecting voice in \"{guild.name}\" to restore recording.")
     channel = voice_client.channel
     was_playing = IsPlaying(guild)
     health["hold_until"] = now + 60  # Backoff against reconnect loops.
-    health["stage"] = 0
     try:
         await Disconnect(guild)
         await Connect(channel)
@@ -788,14 +786,17 @@ async def PlayNext(guild:discord.Guild) -> bool:
     voice_client:discord.VoiceClient = guild.voice_client
     if data is None or not voice_client or not voice_client.is_connected():
         return False
+    # NEVER call voice_client.stop() to control playback: on a
+    # VoiceRecvClient it also stops LISTENING, killing the replay
+    # recorder and the voice triggers until the watchdog notices.
     if voice_client.is_playing() or voice_client.is_paused():
         if guild.id in _ack_only:
             # Only the wake acknowledgment is sounding: cut it and fall
             # through to start the actual media.
-            voice_client.stop()
+            voice_client.stop_playing()
             _ack_only.discard(guild.id)
         else:
-            voice_client.stop()
+            voice_client.stop_playing()
             return True
     while data.queue:
         media = data.queue.pop(0)
@@ -836,7 +837,7 @@ async def PlayPrev(guild:discord.Guild) -> bool:
     if voice_client.is_playing() or voice_client.is_paused():
         # The current media was requeued by hand, keep it out of history.
         data.requeued = True
-        voice_client.stop()
+        voice_client.stop_playing()  # stop() would also kill listening.
     else:
         await PlayNext(guild)
     return True
@@ -1033,7 +1034,7 @@ async def Scrub(guild:discord.Guild, position:float) -> bool:
         # Flag the stop as a seek so the after-play callback does not
         # advance the queue.
         data.seeking = True
-        voice_client.stop()
+        voice_client.stop_playing()  # stop() would also kill listening.
     voice_client.play(source, after=_AfterPlay(guild))
     # Track the new playback position.
     data.play_started = time.monotonic()

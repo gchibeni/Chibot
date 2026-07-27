@@ -42,7 +42,7 @@ BYTES_PER_SECOND = TARGET_RATE * 2  # 16kHz mono 16-bit.
 PRE_ROLL_SECONDS = 0.6  # Audio kept from before the wake phrase was detected.
 # Just enough to cover recognition latency without swallowing whatever
 # was being said before the wake word.
-CAPTURE_MAX_SECONDS = 6.0  # Longest voice command capture after a wake phrase.
+CAPTURE_MAX_SECONDS = 15.0  # Longest voice command capture after a wake phrase.
 # The idle pause must stay well under CAPTURE_MAX_SECONDS: it is the
 # latency of every spoken command (the capture waits this long in silence
 # before going to whisper), while still not splitting slow speech.
@@ -69,8 +69,7 @@ _audio_buffers:dict[tuple, bytearray] = {}  # (guild_id, user_id)
 _recent_finals:dict[tuple, tuple] = {}  # (guild_id, user_id, lang) -> (text, time)
 _last_fired:dict[tuple, float] = {}  # (guild_id, user_id, title)
 _rolling:dict[tuple, bytearray] = {}  # (guild_id, user_id) pre-roll audio
-_captures:dict[tuple, dict] = {}  # (guild_id, user_id) -> {"buffer", "last_audio"}
-_wake_counts:dict[tuple, int] = {}  # (guild_id, user_id) wake phrases seen in the current utterance.
+_captures:dict[tuple, dict] = {}  # (guild_id, user_id) -> {"buffer", "last_audio", "got_audio"}
 _transcribe_queue:queue.Queue = queue.Queue(maxsize=16)
 _transcriber:threading.Thread = None
 _whisper_model = None
@@ -95,7 +94,7 @@ def UnregisterGuild(guild:discord.Guild):
     """Stop listening and free the guild's recognizers (call on disconnect)."""
     _guilds.pop(guild.id, None)
     _DropRecognizers(guild.id)
-    for cache in (_resample_states, _audio_buffers, _recent_finals, _rolling, _captures, _wake_counts):
+    for cache in (_resample_states, _audio_buffers, _recent_finals, _rolling, _captures):
         for key in [k for k in cache if k[0] == guild.id]:
             cache.pop(key, None)
     ...
@@ -248,7 +247,6 @@ def _ResetRecognition(guild_id:int, user_id:int):
         if key in _recognizers:
             _recognizers[key].Reset()
         _recent_finals.pop(key, None)
-    _wake_counts.pop((guild_id, user_id), None)
 
 def _ProcessChunk(guild_id:int, user_id:int, pcm:bytes):
     from scripts import actions, settings
@@ -305,23 +303,34 @@ def _ProcessChunk(guild_id:int, user_id:int, pcm:bytes):
         else:
             text = json.loads(recognizer.PartialResult()).get("partial", "")
         if not text:
-            if is_final:
-                # Even an empty final closes the partial stream.
-                _wake_counts.pop(key, None)
             continue
-        # Every NEW wake phrase (re)starts the voice command capture, so
-        # "hey oto... hey oto play x" always starts the command at the
-        # LAST wake heard. Occurrences are counted because a partial
-        # result repeats the same wake on every batch: only an increase
-        # is a fresh wake, not the previous one still in the stream.
+        # Wake handling. Vosk PARTIALS are unstable guesses that get
+        # revised ("hey how are you" flickers through "hey otto" before
+        # settling on "[unk] hey [unk]"), so they may only do the one
+        # cheap, reversible thing: start a capture when none is running,
+        # for the fastest possible acknowledgment. Anything else waits
+        # for a FINAL, the text vosk actually commits to.
+        #
+        # Once a capture holds command audio, the wake word is DEAF for
+        # this user until the capture ends (completion, silence, timeout
+        # or expiry): nothing may restart or chop it, so the transcribed
+        # audio always runs from the wake that armed it to the silence
+        # that ended it. Only a capture still WAITING for its command
+        # (armed, nothing recorded worth keeping) is restarted by a
+        # fresh final ending in a wake phrase — that re-dings and gives
+        # "hey oto... hey oto..." a new window each time.
         if WHISPER_AVAILABLE and not _whisper_failed and state["has_call"]:
-            wake_count = actions.CountWakePhrases(text, guild_id)
-            if wake_count > _wake_counts.get(key, 0):
+            capture_state = _captures.get(key)
+            if capture_state is None:
+                if actions.HasWakePhrase(text, guild_id):
+                    _StartCapture(guild_id, user_id)
+            elif not capture_state["got_audio"] and is_final and actions.TextAfterWake(text, guild_id) == "":
                 _StartCapture(guild_id, user_id)
-            _wake_counts[key] = wake_count
-        if is_final:
-            # The utterance closed: the next partial starts a fresh count.
-            _wake_counts.pop(key, None)
+        # Commands and triggers also fire only from finals: a partial
+        # once hallucinated "resume" out of "do you want to play?",
+        # fired it, and threw away the capture whisper needed.
+        if not is_final:
+            continue
         # Prepend the previous utterance so phrases split by a short pause
         # (e.g. "hey oto" ... "tocar musica") still match together.
         match_text = f"{recent} {text}" if now - recent_time < CONTEXT_SECONDS else text
@@ -384,8 +393,14 @@ def _TryBuiltin(guild_id:int, user_id:int, text:str, fixed_only:bool = False) ->
     if state is None:
         return False
     from scripts import actions
-    if fixed_only and not actions.HasWakePhrase(text, guild_id):
-        return False
+    if fixed_only:
+        # The vosk fast path only matches what was said AFTER the last
+        # wake phrase: leftover words from a previous utterance bridged
+        # in front of a fresh "hey oto" must never fire ("stop hey oto"
+        # used to pause the music).
+        text = actions.TextAfterWake(text, guild_id)
+        if not text:
+            return False
     matched = actions.MatchBuiltinCommand(text, guild_id)
     if matched is None:
         return False
@@ -403,9 +418,7 @@ def _TryBuiltin(guild_id:int, user_id:int, text:str, fixed_only:bool = False) ->
     member = guild.get_member(user_id)
     if member is None or member.voice is None:
         return False
-    from scripts import settings
-    if settings.SPEECH_DEBUG:
-        print(f"Speech - Builtin voice command \"{matched[0]}\" from {user_id}.")
+    print(f"Speech - Builtin voice command \"{matched[0]}\" from {user_id}.")
     channel = _ResponseChannel(guild, member)
     asyncio.run_coroutine_threadsafe(
         actions.FireBuiltinCommand(bot, guild, channel, member, matched), bot.loop)
@@ -427,27 +440,34 @@ def _UpdateDucking(guild_id:int):
     except Exception:
         pass
 
+def _HasSpeech(audio:bytes) -> bool:
+    """Whether any 100ms window of the clip carries speech-level energy."""
+    step = int(0.1 * BYTES_PER_SECOND)
+    return any(audioop.rms(audio[i:i + step], 2) > SPEECH_RMS_THRESHOLD for i in range(0, len(audio), step))
+
 def _StartCapture(guild_id:int, user_id:int, armed:bool = False):
-    """Begin recording a voice command for whisper transcription.
+    """Begin (or restart) recording a voice command for transcription.
 
     An "armed" capture (wake phrase heard, command not started yet) waits
     up to WAKE_WINDOW_SECONDS for the user to start speaking again.
     """
-    from scripts import settings, voice
+    from scripts import voice
     key = (guild_id, user_id)
     now = time.monotonic()
     _captures[key] = { "buffer":bytearray(_rolling.get(key, b"")), "last_audio":now, "got_audio":not armed }
     _UpdateDucking(guild_id)
+    if armed:
+        print(f"Speech - Waiting for a command from {user_id}...")
+        return
     # Acknowledge the wake word with a sound (pitch varies per play).
-    if not armed:
-        try:
-            voice.PlayAcknowledge(guild_id)
-        except Exception as e:
-            print(f"Speech - Could not play the acknowledgment sound.\nErrors: {e}\n")
-    if settings.SPEECH_DEBUG:
-        print(f"Speech - {'Waiting for' if armed else 'Capturing'} command from {user_id}...")
+    print(f"Speech - Wake word from {user_id}, capturing command...")
+    try:
+        voice.PlayAcknowledge(guild_id)
+    except Exception as e:
+        print(f"Speech - Could not play the acknowledgment sound.\nErrors: {e}\n")
 
 def _FinalizeIdleCaptures():
+    from scripts import settings
     now = time.monotonic()
     for key in list(_captures):
         capture = _captures[key]
@@ -457,11 +477,13 @@ def _FinalizeIdleCaptures():
             if idle > WAKE_WINDOW_SECONDS:
                 _captures.pop(key, None)
                 _UpdateDucking(key[0])
+                if settings.SPEECH_DEBUG:
+                    print(f"Speech - Wake window expired for {key[1]}.")
         elif idle > CAPTURE_IDLE_SECONDS:
-            _FinalizeCapture(key)
+            _FinalizeCapture(key, "silence")
 
-def _FinalizeCapture(key:tuple):
-    """Send a finished capture to the transcriber."""
+def _FinalizeCapture(key:tuple, reason:str = "max length"):
+    """Close a capture and send it to the transcriber."""
     capture = _captures.pop(key, None)
     if capture is None:
         return
@@ -469,12 +491,20 @@ def _FinalizeCapture(key:tuple):
     _UpdateDucking(guild_id)
     # Clear the wake phrase from the recognizer streams.
     _ResetRecognition(guild_id, user_id)
-    _EnsureTranscriber()
     audio = bytes(capture["buffer"])
-    try:
-        _transcribe_queue.put_nowait((guild_id, user_id, audio))
-    except queue.Full:
-        print("Speech - Transcription backlog, dropping a voice command capture.")
+    seconds = len(audio) / BYTES_PER_SECOND
+    # A capture with no speech in it (a wake followed by nothing) is not
+    # worth a whisper round-trip: transcribing near-silence is where the
+    # "Hey Oto." hallucination loops came from.
+    if not _HasSpeech(audio):
+        print(f"Speech - Command from {user_id} ended ({reason}) with no speech.")
+    else:
+        print(f"Speech - Command from {user_id} ended ({reason}), transcribing {seconds:.1f}s...")
+        _EnsureTranscriber()
+        try:
+            _transcribe_queue.put_nowait((guild_id, user_id, audio))
+        except queue.Full:
+            print("Speech - Transcription backlog, dropping a voice command capture.")
     # A capture barely longer than the wake phrase itself means the user
     # called the bot and paused. Keep listening RIGHT NOW: waiting for
     # whisper to confirm the wake first left a deaf gap of several
@@ -547,16 +577,18 @@ def _Transcribe(guild_id:int, user_id:int, audio:bytes):
     options = { "vad_filter":True, "beam_size":3, "temperature":0.0, "condition_on_previous_text":False, "initial_prompt":WHISPER_PROMPT }
     segments, info = _whisper_model.transcribe(buffer, language=state.get("lang", "en"), **options)
     text = _CleanTranscription(" ".join(segment.text for segment in segments))
-    if settings.SPEECH_DEBUG:
-        print(f"Speech - Whisper heard ({info.language}) from {user_id}: \"{text}\"")
     if not text:
+        print(f"Speech - Transcription from {user_id} was empty or discarded as noise.")
         return
+    print(f"Speech - Transcribed ({info.language}) from {user_id}: \"{text}\"")
     matches = actions.MatchCallTriggers(text, state["triggers"])
     for title, trigger in matches:
         if _Cooldown(guild_id, user_id, title):
             _FireTrigger(guild_id, user_id, trigger)
     # Custom triggers take precedence, built-in commands run otherwise.
     fired = bool(matches) or _TryBuiltin(guild_id, user_id, text)
+    if not fired:
+        print(f"Speech - No command matched for {user_id}.")
     # The user likely said only the wake phrase and paused (vosk already
     # confirmed the wake): keep listening for the actual command. Never
     # clobber a capture that is already running (a new wake or the

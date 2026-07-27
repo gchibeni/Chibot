@@ -17,7 +17,10 @@ dependencies = [
     "urllib3==2.3.0",
     # Offline speech recognition for voice triggers. Small en/pt models are
     # downloaded to ./models on first use — see scripts/speech.py.
-    "vosk==0.3.45",
+    # 0.3.45 dropped the macOS wheels; 0.3.44 (same recognizer API) is the
+    # last release with a universal2 wheel for Apple Silicon.
+    "vosk==0.3.45 ; sys_platform != 'darwin'",
+    "vosk==0.3.44 ; sys_platform == 'darwin'",
     # Whisper (CTranslate2 build) transcribes voice commands after a wake
     # phrase. The model downloads on first use — see scripts/speech.py.
     "faster-whisper==1.2.1",

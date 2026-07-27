@@ -283,16 +283,36 @@ VOICE_COMMAND_VERBS = [
 
 # Single-word commands added to the vosk grammar: they fire straight from
 # vosk (no whisper round-trip), so pause/skip react in under a second.
+# "play"/"toca"/"tocar" are deliberately NOT here: the grammar cannot hear
+# song names, so "play <song>" collapses to bare "play" and fast-fired a
+# resume while whisper queued the song — one sentence, two actions. Bare
+# resume still fast-fires via "continue"/"resume"/"continua".
 BUILTIN_GRAMMAR_PHRASES = [
-    "play", "pause", "stop", "continue", "resume", "next", "skip", "previous", "shuffle",
+    "pause", "stop", "continue", "resume", "next", "skip", "previous", "shuffle",
     "repeat", "loop", "replay",
-    "toca", "tocar", "pausa", "pare", "para", "continua", "proxima", "proximo", "pula",
+    "pausa", "pare", "para", "continua", "proxima", "proximo", "pula",
     "passa", "volta", "anterior", "embaralha", "mistura", "repete", "repetir",
 ]
 
 def _CorrectVerb(word:str) -> str:
     matches = difflib.get_close_matches(word, VOICE_COMMAND_VERBS, n=1, cutoff=0.75)
     return matches[0] if matches else word
+
+# The transcribe verbs, for re-extracting the message from the RAW text.
+_RAW_MESSAGE_VERBS = re.compile(
+    r"(?:transcribe|transcreve|transcreva|transcrever|anota|anote|anotar|escreve|escreva)[\s,.:;!?]*(.+)",
+    re.IGNORECASE | re.DOTALL)
+
+def _PreserveRawMessage(raw_text:str, matched):
+    """Matching runs on normalized text (lowercased, punctuation stripped),
+    but a transcribed message should keep the user's casing and punctuation:
+    recover it from the raw transcription after the verb."""
+    args = matched[2]
+    if args.get("message"):
+        raw = _RAW_MESSAGE_VERBS.search(raw_text)
+        if raw and raw.group(1).strip():
+            args["message"] = raw.group(1).strip()
+    return matched
 
 def MatchBuiltinCommand(text:str, guild_id:int):
     """Match transcribed speech against the built-in voice commands.
@@ -320,13 +340,13 @@ def MatchBuiltinCommand(text:str, guild_id:int):
         candidate_words = words[start:]
         matched = try_match(" ".join(candidate_words))
         if matched is not None:
-            return matched
+            return _PreserveRawMessage(text, matched)
         # Retry with the leading verb fuzzy-corrected.
         corrected = _CorrectVerb(candidate_words[0])
         if corrected != candidate_words[0]:
             matched = try_match(" ".join([corrected] + candidate_words[1:]))
             if matched is not None:
-                return matched
+                return _PreserveRawMessage(text, matched)
     return None
 
 async def FireBuiltinCommand(bot, guild:discord.Guild, channel, member:discord.Member, matched):
@@ -389,11 +409,16 @@ def HasWakePhrase(text:str, guild_id:int) -> bool:
     """Whether the text contains one of the guild's wake phrases."""
     return re.search(rf"(?<!\w)(?:{_WakePattern(guild_id)})(?!\w)", NormalizeText(text)) is not None
 
-def CountWakePhrases(text:str, guild_id:int) -> int:
-    """How many wake phrases the text contains. Recognizer partials repeat
-    the same text every batch, so speech.py compares counts between batches
-    to tell a NEW "hey oto" from the same one still sitting in the stream."""
-    return len(re.findall(rf"(?<!\w)(?:{_WakePattern(guild_id)})(?!\w)", NormalizeText(text)))
+def TextAfterWake(text:str, guild_id:int) -> str:
+    """The words after the LAST wake phrase, or None when no wake phrase
+    is present. Commands follow their wake: "stop ... hey oto" must not
+    fire "stop", which is exactly what happens when leftover words from a
+    previous utterance are matched together with a fresh wake phrase."""
+    normalized = NormalizeText(text)
+    matches = list(re.finditer(rf"(?<!\w)(?:{_WakePattern(guild_id)})(?!\w)", normalized))
+    if not matches:
+        return None
+    return normalized[matches[-1].end():].strip()
 
 def MatchCallTriggers(text:str, triggers:dict[str, dict]) -> list[tuple[str, dict]]:
     """Match %call phrases WITHOUT requiring the wake words, for use on

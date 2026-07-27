@@ -133,7 +133,9 @@ urllib3==2.3.0
     # via
     #   chibot
     #   requests
-vosk==0.3.45
+vosk==0.3.44 ; sys_platform == 'darwin'
+    # via chibot
+vosk==0.3.45 ; sys_platform != 'darwin'
     # via chibot
 websockets==16.1.1
     # via vosk

@@ -2,8 +2,10 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
-    "python_full_version >= '3.13'",
-    "python_full_version < '3.13'",
+    "python_full_version >= '3.13' and sys_platform != 'darwin'",
+    "python_full_version >= '3.13' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and sys_platform != 'darwin'",
+    "python_full_version < '3.13' and sys_platform == 'darwin'",
 ]
 
 [[package]]
@@ -402,7 +404,8 @@ dependencies = [
     { name = "pynacl" },
     { name = "pyotp" },
     { name = "urllib3" },
-    { name = "vosk" },
+    { name = "vosk", version = "0.3.44", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "vosk", version = "0.3.45", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin'" },
     { name = "yt-dlp" },
 ]
 
@@ -418,7 +421,8 @@ requires-dist = [
     { name = "pynacl", specifier = "==1.5.0" },
     { name = "pyotp", specifier = "==2.9.0" },
     { name = "urllib3", specifier = "==2.3.0" },
-    { name = "vosk", specifier = "==0.3.45" },
+    { name = "vosk", marker = "sys_platform != 'darwin'", specifier = "==0.3.45" },
+    { name = "vosk", marker = "sys_platform == 'darwin'", specifier = "==0.3.44" },
     { name = "yt-dlp", specifier = ">=2025.3.27" },
 ]
 
@@ -1281,8 +1285,31 @@ wheels = [
 
 [[package]]
 name = "vosk"
+version = "0.3.44"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.13' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and sys_platform == 'darwin'",
+]
+dependencies = [
+    { name = "cffi" },
+    { name = "requests" },
+    { name = "srt" },
+    { name = "tqdm" },
+    { name = "websockets" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/19/5e8299237bc2005c3d155d3b48adba6fd6484465ad5c970302fc1d37947d/vosk-0.3.44-py3-none-macosx_10_6_universal2.whl", hash = "sha256:029d0b3d6a5cff874c575b8a5814a4cccfb37608cff52e846c02a8c67a882801", size = 4710953, upload-time = "2022-09-25T19:11:57.513Z" },
+]
+
+[[package]]
+name = "vosk"
 version = "0.3.45"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.13' and sys_platform != 'darwin'",
+    "python_full_version < '3.13' and sys_platform != 'darwin'",
+]
 dependencies = [
     { name = "cffi" },
     { name = "requests" },
