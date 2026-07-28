@@ -188,9 +188,57 @@ class GuildData():
         mix = numpy.zeros(window_samples * CHANNELS, dtype=numpy.int32)
         for user, frames in snapshot.items():
             track = bytearray(window_samples * FRAME_BYTES)
+            def write_at(position:int, pcm:bytes):
+                """Write PCM at the exact sample offset, clipped to the
+                window; overlaps overwrite."""
+                offset = (position - window_start_samples) * FRAME_BYTES
+                if offset < 0:
+                    if -offset >= len(pcm):
+                        return
+                    pcm = pcm[-offset:]
+                    offset = 0
+                if offset >= len(track):
+                    return
+                end = min(offset + len(pcm), len(track))
+                track[offset:end] = pcm[:end - offset]
+            # Decode in SPOKEN order, not arrival order: packets arrive
+            # slightly out of order (more often under load or on a slow
+            # host), and a stateful opus decoder fed disordered frames
+            # smears every swap into audible scratch. The RTP timestamp
+            # is the sender's own 48kHz clock; sorting on it (rebased to
+            # the first frame so the uint32 wrap cannot split a window)
+            # restores the true order. Duplicate frames decode once.
+            base = frames[0][1] if isinstance(frames[0][1], int) else 0
+            frames.sort(key=lambda entry: ((entry[1] - base + 2**31) % 2**32) if isinstance(entry[1], int) else 0)
             decoder = discord.opus.Decoder()
             anchor = None  # (rtp timestamp, media sample) pair anchoring the stream.
+            last_rtp = None
+            expected_rtp = None  # Where the next frame should start, in RTP samples.
             for arrival_ms, rtp_timestamp, opus_frame in frames:
+                if rtp_timestamp is not None and rtp_timestamp == last_rtp:
+                    continue  # Retransmitted duplicate.
+                last_rtp = rtp_timestamp
+                # Conceal small losses. A hole of one or two frames in the
+                # RTP sequence is a lost packet, not a speech pause: left
+                # as zeros it puts a hard-edged 20ms crater mid-word — the
+                # click heard on lossy connections. Opus carries recovery
+                # data for exactly this: in-band FEC (this frame holds a
+                # copy of the previous one) fills the frame right before
+                # us, packet-loss concealment synthesizes any earlier one
+                # from decoder state.
+                if (isinstance(rtp_timestamp, int) and expected_rtp is not None and anchor is not None):
+                    missing = rtp_timestamp - expected_rtp
+                    frame_samples = discord.opus.Decoder.SAMPLES_PER_FRAME
+                    if 0 < missing <= 2 * frame_samples and missing % frame_samples == 0:
+                        lost = missing // frame_samples
+                        for index in range(lost):
+                            try:
+                                fill = (decoder.decode(opus_frame, fec=True) if index == lost - 1
+                                        else decoder.decode(None))
+                            except Exception:
+                                break
+                            fill_rtp = expected_rtp + index * frame_samples
+                            write_at(anchor[1] + (fill_rtp - anchor[0]), fill)
                 try:
                     pcm = decoder.decode(opus_frame, fec=False)
                 except Exception:
@@ -205,21 +253,15 @@ class GuildData():
                         position = anchor[1] + (rtp_timestamp - anchor[0])
                     if position is None or abs(position - arrival_samples) > 2 * SAMPLE_RATE:
                         position = arrival_samples
+                        if anchor is not None:
+                            # A stream reset: never smear decoder state
+                            # across the discontinuity.
+                            decoder = discord.opus.Decoder()
                         anchor = (rtp_timestamp, arrival_samples)
+                    expected_rtp = rtp_timestamp + chunk_samples
                 else:
                     position = arrival_samples
-                # Write at the exact sample offset; overlaps overwrite.
-                offset = (position - window_start_samples) * FRAME_BYTES
-                if offset < 0:
-                    # Starts before the window: clip what falls outside.
-                    if -offset >= len(pcm):
-                        continue
-                    pcm = pcm[-offset:]
-                    offset = 0
-                if offset >= len(track):
-                    continue
-                end = min(offset + len(pcm), len(track))
-                track[offset:end] = pcm[:end - offset]
+                write_at(position, pcm)
             mix += numpy.frombuffer(bytes(track), dtype=numpy.int16)
         output = numpy.clip(mix, -32768, 32767).astype(numpy.int16).tobytes()
         combined_audio = AudioSegment(output, sample_width=BYTES_PER_SAMPLE, frame_rate=SAMPLE_RATE, channels=CHANNELS)
@@ -430,6 +472,15 @@ async def Connect(channel:discord.VoiceChannel):
     """Connect to channel and start listening."""
     global _bot
     guild = channel.guild
+    # A zombie voice client (exists but reports not connected: a half
+    # torn-down session or a reconnect that never completed) makes
+    # channel.connect raise "Already connected". Clear it first.
+    stale = guild.voice_client
+    if stale is not None and not stale.is_connected():
+        try:
+            await stale.disconnect(force=True)
+        except Exception as e:
+            print(f"Voice - Could not clear a stale voice session.\nErrors: {e}\n")
     # Connect first: a failed handshake attempt briefly flaps the voice
     # state, and the disconnect handler would wipe a buffer created early.
     voice_client = await channel.connect(cls=VoiceRecvClient)
@@ -602,11 +653,11 @@ def RecorderCallback(guild: discord.Guild, user: discord.User, data: VoiceData):
                 _recorder_error_log[0] = now
                 print(f"Voice - Dropped undecrypted E2EE frame(s) from user {user.id}.")
             return
-        rtp_timestamp = getattr(packet, "timestamp", None)
-        buffer.AddOpusPacket(user, opus_frame, rtp_timestamp if isinstance(rtp_timestamp, int) else None)
-        _HealthFor(guild.id)["pcm"] = now
-        # Live decode for the recognizers only; a failed frame costs this
-        # 20ms of speech audio and nothing else.
+        # Live decode FIRST, with this user's own decoder: it doubles as
+        # the admission test for the replay store. A frame that cannot be
+        # decoded here would fail identically at replay time — storing it
+        # only planted a corrupted frame between good ones, which is
+        # where the scratchy replay artifacts came from.
         key = (guild.id, user.id)
         decoder = _speech_decoders.get(key)
         if decoder is None:
@@ -620,6 +671,9 @@ def RecorderCallback(guild: discord.Guild, user: discord.User, data: VoiceData):
                 print(f"Voice - Dropped undecodable audio frame(s) from user {user.id} "
                       f"(len={len(opus_frame)}, head={opus_frame[:4].hex()}).\nErrors: {e}\n")
             return
+        rtp_timestamp = getattr(packet, "timestamp", None)
+        buffer.AddOpusPacket(user, opus_frame, rtp_timestamp if isinstance(rtp_timestamp, int) else None)
+        _HealthFor(guild.id)["pcm"] = now
         speech.FeedAudio(guild, user, pcm)
     except Exception as e:
         print(f"Voice - Error performing recorder callback.\nErrors: {e}\n")
